@@ -1,16 +1,17 @@
 {
   "download_path": "C:\\Users\\Jovian\\Documents\\美图图库",
   "default_format": "影片",
-  "default_resolution": "自動選擇最佳",
+  "default_resolution": "720P",
   "extract_audio_only": false,
   "window_width": 956,
-  "window_height": 648,
-  "window_x": 454,
-  "window_y": 72,
+  "window_height": 677,
+  "window_x": 18,
+  "window_y": 52,
   "language": "zh_TW",
-  "ui_font_size": 9,
+  "ui_font_size": 10,
   "log_font_size": 10,
   "recent_urls": [
+    "https://www.youtube.com/watch?v=koTg82Qf39Y",
     "https://www.youtube.com/watch?v=KeuUYzoeSk8",
     "https://www.youtube.com/watch?v=oIeDyfdzbw8",
     "https://www.youtube.com/watch?v=K1jfORik2P8",
@@ -19,6 +20,62 @@
     "https://www.youtube.com/watch?v=wa3f6E1qf-Y"
   ],
   "download_history": [
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T23:01:37.316964"
+    },
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T23:00:20.539084"
+    },
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T22:59:40.562113"
+    },
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T22:56:13.912366"
+    },
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T22:54:44.106589"
+    },
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T22:54:23.666574"
+    },
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T22:53:32.093300"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=DwLc-yCHJJI",
+      "title": "未知標題",
+      "format": "影片",
+      "success": false,
+      "timestamp": "2025-06-29T22:46:26.169061"
+    },
     {
       "url": "",
       "title": "未知標題",
@@ -312,62 +369,6 @@
       "format": "影片",
       "success": false,
       "timestamp": "2025-06-29T00:39:46.474766"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=FuS0_thqDBA",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-29T00:37:32.274688"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=FuS0_thqDBA",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-29T00:30:54.066341"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=FuS0_thqDBA",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-29T00:28:59.996949"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=RBkBUuykm10",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-29T00:23:52.831062"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=quwT2CSwJ0A",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-29T00:17:51.768841"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=quwT2CSwJ0A",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-29T00:13:40.174672"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=quwT2CSwJ0A",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-29T00:08:18.484180"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=quwT2CSwJ0A",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-29T00:04:36.897963"
     }
   ],
   "auto_start_download": false,
@@ -381,21 +382,21 @@
   "add_timestamp": false,
   "sanitize_filename": true,
   "show_completion_dialog": false,
-  "filename_prefix": "Per Nice2-",
+  "filename_prefix": "TEST",
   "splitter_sizes": [
-    433,
-    518
+    458,
+    493
   ],
   "prefix_history": [
+    "TEST",
+    "TES",
+    "TE",
+    "T",
     "Per Nice2-",
     "Per best3-",
     "Per best2-",
     "Test-",
     "Tes-",
-    "Te-",
-    "T-",
-    "Per best2",
-    "Per best",
-    "Per bes"
+    "Te-"
   ]
 }

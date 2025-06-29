@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+YouTube 下載器構建腳本 V1.46
+自動下載 FFmpeg 功能版本
+"""
+
 import PyInstaller.__main__
 import os
 import shutil
@@ -77,7 +85,7 @@ print(f"Python 版本: {sys.version}")
 # 構建參數列表
 args = [
     'start_downloader_fixed.py',
-    '--name=YouTube下載器v1.45',
+    '--name=YouTube下載器v1.46',
     '--windowed',
     '--add-data=VERSION;.',
     '--add-data=ffmpeg_bin;ffmpeg_bin',
@@ -117,10 +125,10 @@ print(f"參數: {args}")
 PyInstaller.__main__.run(args)
 
 print("打包完成！")
-print(f"輸出目錄: {os.path.join(os.getcwd(), 'dist', 'YouTube下載器v1.45')}")
+print(f"輸出目錄: {os.path.join(os.getcwd(), 'dist', 'YouTube下載器v1.46')}")
 
 # 添加額外的檔案到輸出目錄
-output_dir = os.path.join(os.getcwd(), 'dist', 'YouTube下載器v1.45')
+output_dir = os.path.join(os.getcwd(), 'dist', 'YouTube下載器v1.46')
 print(f"正在複製額外檔案到輸出目錄: {output_dir}")
 
 # 確保 FFmpeg 在輸出目錄中
@@ -152,8 +160,8 @@ if os.path.exists('使用說明.md'):
 # 創建啟動腳本
 with open(os.path.join(output_dir, '啟動下載器.bat'), 'w', encoding='utf-8') as f:
     f.write('@echo off\n')
-    f.write('echo 正在啟動 YouTube 下載器 v1.45...\n')
-    f.write('start "" "YouTube下載器v1.45.exe"\n')
+    f.write('echo 正在啟動 YouTube 下載器 v1.46...\n')
+    f.write('start "" "YouTube下載器v1.46.exe"\n')
 print("已創建啟動腳本")
 
 print("所有檔案已複製完成！") 
