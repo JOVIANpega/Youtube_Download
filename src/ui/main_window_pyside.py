@@ -10,6 +10,8 @@ import ssl
 import sys
 import re
 import time
+import subprocess
+import platform
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from user_preferences import UserPreferences
 
@@ -23,6 +25,55 @@ def safe_filename(filename, max_length=100):
     if not filename:
         filename = "YouTube_Video"
     return filename
+
+def find_ffmpeg_executable():
+    """尋找 FFmpeg 可執行文件路徑"""
+    try:
+        # 先嘗試直接執行 ffmpeg 命令
+        result = subprocess.run(['ffmpeg', '-version'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return 'ffmpeg'  # 在 PATH 中找到
+    except:
+        pass
+    
+    # 嘗試在常見位置查找
+    system = platform.system().lower()
+    possible_paths = []
+    
+    if system == 'windows':
+        possible_paths = [
+            r'C:\ffmpeg\bin\ffmpeg.exe',
+            r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+            r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe',
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), r'Programs\ffmpeg\bin\ffmpeg.exe'),
+            os.path.join(os.environ.get('APPDATA', ''), r'ffmpeg\bin\ffmpeg.exe')
+        ]
+    elif system == 'darwin':  # macOS
+        possible_paths = [
+            '/usr/local/bin/ffmpeg',
+            '/usr/bin/ffmpeg',
+            '/opt/homebrew/bin/ffmpeg'
+        ]
+    else:  # Linux
+        possible_paths = [
+            '/usr/bin/ffmpeg',
+            '/usr/local/bin/ffmpeg',
+            '/opt/ffmpeg/bin/ffmpeg'
+        ]
+    
+    # 檢查可能的路徑
+    for path in possible_paths:
+        if os.path.isfile(path):
+            try:
+                result = subprocess.run([path, '-version'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    return path
+            except:
+                pass
+    
+    return None  # 未找到 FFmpeg
 
 class DownloadThread(QThread):
     progress = Signal(str)
@@ -56,6 +107,15 @@ class DownloadThread(QThread):
                 'socket_timeout': 30,
                 'retries': 3,
             }
+            
+            # 檢查並設置 FFmpeg 路徑
+            ffmpeg_path = find_ffmpeg_executable()
+            if ffmpeg_path:
+                self.progress.emit(f"<span style=\"color: green;\">✓ 已找到 FFmpeg: {ffmpeg_path}</span>")
+                ydl_opts['ffmpeg_location'] = ffmpeg_path
+            else:
+                self.progress.emit("<span style=\"color: orange;\">⚠️ 未找到 FFmpeg，可能無法處理某些格式</span>")
+            
             if self.cookies_path:
                 ydl_opts['cookies'] = self.cookies_path
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -76,6 +136,10 @@ class DownloadThread(QThread):
                     'retries': 3,
                 }
                 
+                # 設置 FFmpeg 路徑
+                if ffmpeg_path:
+                    download_opts['ffmpeg_location'] = ffmpeg_path
+                
                 if self.extract_audio_only:
                     download_opts['format'] = 'bestaudio/best'
                     download_opts['postprocessors'] = [{
@@ -84,22 +148,33 @@ class DownloadThread(QThread):
                         'preferredquality': '192',
                     }]
                 else:
-                    # 根據解析度選擇格式
+                    # 改進解析度選擇邏輯，優先使用單一格式而非分離的視頻和音頻流
                     if self.resolution_choice == "最高品質":
-                        download_opts['format'] = 'bestvideo+bestaudio/best'
-                        self.progress.emit("使用最高品質模式 (分離視頻和音頻流)")
+                        # 嘗試先找單一格式的高品質視頻
+                        download_opts['format'] = 'best/bestvideo+bestaudio'
+                        self.progress.emit("使用最高品質模式 (優先單一格式)")
                     elif self.resolution_choice == "1080P (Full HD)" and any(fmt.get('height') == 1080 for fmt in self.formats):
-                        download_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
-                        self.progress.emit("使用 1080P 解析度")
+                        # 先尋找單一格式的1080P，如果沒有再使用分離流
+                        download_opts['format'] = 'best[height<=1080]/bestvideo[height<=1080]+bestaudio'
+                        self.progress.emit("使用 1080P 解析度 (優先單一格式)")
                     elif self.resolution_choice == "720P (HD)" and any(fmt.get('height') == 720 for fmt in self.formats):
-                        download_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
-                        self.progress.emit("使用 720P 解析度")
+                        # 先尋找單一格式的720P，如果沒有再使用分離流
+                        download_opts['format'] = 'best[height<=720]/bestvideo[height<=720]+bestaudio'
+                        self.progress.emit("使用 720P 解析度 (優先單一格式)")
                     else:
-                        # 預設使用最佳可用格式
-                        download_opts['format'] = 'bestvideo+bestaudio/best'
-                        self.progress.emit("使用預設最佳解析度")
+                        # 預設使用最佳可用格式，優先單一格式
+                        download_opts['format'] = 'best/bestvideo+bestaudio'
+                        self.progress.emit("使用預設最佳解析度 (優先單一格式)")
                     
+                    # 設置合併格式，優先使用 mp4
                     download_opts['merge_output_format'] = self.merge_output_format
+                    
+                    # 添加額外的 FFmpeg 參數，嘗試解決合併問題
+                    download_opts['postprocessor_args'] = [
+                        '-c:v', 'copy',
+                        '-c:a', 'aac',  # 使用 AAC 音頻編碼，更兼容
+                        '-strict', 'experimental'
+                    ]
                 
                 self.progress.emit(f"開始下載: {video_title} ({download_opts['format']})")
                 
@@ -137,50 +212,54 @@ class DownloadThread(QThread):
                             self.finished.emit(False, "下載失敗：檔案不存在或大小為0，可能是影片受限、已刪除或無法下載。建議升級 yt-dlp 或用 cookies。")
                 
                 except Exception as e:
-                    self.progress.emit(f"下載失敗: {str(e)}")
+                    self.progress.emit(f"<span style=\"color: red;\">下載失敗: {str(e)}</span>")
                     
                     # 檢查是否是合併錯誤
                     if "Postprocessing" in str(e) and "Could not write header" in str(e):
-                        self.progress.emit("合併視頻和音頻失敗，嘗試保留已下載的檔案...")
+                        self.progress.emit("<span style=\"color: orange;\">⚠️ 合併視頻和音頻失敗，嘗試使用單一格式下載...</span>")
                         
-                        # 查找已下載的檔案
-                        import glob
-                        pattern = os.path.join(self.output_path, f"{safe_title}.*")
-                        files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
+                        # 直接嘗試使用單一格式下載
+                        download_opts['format'] = 'best/18'  # 優先使用最佳單一格式，備用使用 360p MP4
+                        download_opts.pop('postprocessor_args', None)  # 移除 FFmpeg 參數
                         
-                        if files:
-                            # 找到最大的檔案（可能是視頻檔案）
-                            largest_file = max(files, key=os.path.getsize)
-                            actual_filename = os.path.basename(largest_file)
-                            self.progress.emit(f"<span style=\"color: green;\">✅ 保留已下載的檔案：{actual_filename}</span>")
-                            self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
-                            return
+                        try:
+                            with yt_dlp.YoutubeDL(download_opts) as ydl:
+                                ydl.download([self.url])
+                            self.progress.emit("<span style=\"color: green;\">✅ 使用單一格式下載成功</span>")
+                            
+                            # 查找下載的檔案
+                            import glob
+                            pattern = os.path.join(self.output_path, f"{safe_title}.*")
+                            files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
+                            
+                            if files:
+                                actual_filename = os.path.basename(files[0])
+                                self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
+                                return
+                        except Exception as e2:
+                            self.progress.emit(f"<span style=\"color: red;\">單一格式下載也失敗: {str(e2)}</span>")
+                            
+                            # 嘗試保留已下載的檔案
+                            self.progress.emit("<span style=\"color: orange;\">⚠️ 嘗試保留已下載的檔案...</span>")
+                            
+                            # 查找已下載的檔案
+                            import glob
+                            pattern = os.path.join(self.output_path, f"{safe_title}.*")
+                            files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
+                            
+                            if files:
+                                # 找到最大的檔案（可能是視頻檔案）
+                                largest_file = max(files, key=os.path.getsize)
+                                actual_filename = os.path.basename(largest_file)
+                                self.progress.emit(f"<span style=\"color: green;\">✅ 保留已下載的檔案：{actual_filename}</span>")
+                                self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
+                                return
                     
-                    # 如果不是合併錯誤或找不到已下載檔案，嘗試使用備用格式
-                    self.progress.emit("嘗試使用備用格式...")
+                    # 如果以上方法都失敗，嘗試使用 360p 格式
+                    self.progress.emit("<span style=\"color: orange;\">⚠️ 嘗試使用標準 360p 格式...</span>")
+                    download_opts['format'] = '18/best'  # 18 是 360p MP4 格式
+                    download_opts.pop('postprocessor_args', None)  # 移除 FFmpeg 參數
                     
-                    # 先嘗試使用單一高解析度格式
-                    download_opts['format'] = 'best[height<=1080]/best[height<=720]/best'
-                    try:
-                        with yt_dlp.YoutubeDL(download_opts) as ydl:
-                            ydl.download([self.url])
-                        self.progress.emit("<span style=\"color: green;\">✅ 使用備用高解析度格式下載成功</span>")
-                        
-                        # 查找下載的檔案
-                        import glob
-                        pattern = os.path.join(self.output_path, f"{safe_title}.*")
-                        files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
-                        
-                        if files:
-                            actual_filename = os.path.basename(files[0])
-                            self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
-                            return
-                    except Exception as e2:
-                        self.progress.emit(f"備用高解析度格式失敗: {str(e2)}")
-                    
-                    # 如果高解析度格式也失敗，嘗試使用 18 格式（常見的 360p mp4 格式）
-                    self.progress.emit("嘗試使用標準 360p 格式...")
-                    download_opts['format'] = '18/best'
                     try:
                         with yt_dlp.YoutubeDL(download_opts) as ydl:
                             ydl.download([self.url])
@@ -198,15 +277,15 @@ class DownloadThread(QThread):
                         else:
                             self.finished.emit(False, "下載失敗：找不到下載的檔案")
                     except Exception as e3:
-                        self.progress.emit(f"所有備用格式都失敗: {str(e3)}")
+                        self.progress.emit(f"<span style=\"color: red;\">所有備用格式都失敗: {str(e3)}</span>")
                         self.finished.emit(False, f"下載失敗: {str(e)}。建議升級 yt-dlp 或用 cookies。")
         except Exception as e:
             # 年齡限制自動提示
             if 'Sign in to confirm your age' in str(e) or 'Use --cookies-from-browser or --cookies' in str(e):
-                self.progress.emit("❗ 此影片有年齡限制，請先登入 YouTube 並匯出 cookies.txt，再於下載選項中選擇 cookies 檔案！")
+                self.progress.emit("<span style=\"color: orange;\">❗ 此影片有年齡限制，請先登入 YouTube 並匯出 cookies.txt，再於下載選項中選擇 cookies 檔案！</span>")
                 from PySide6.QtWidgets import QMessageBox
                 QMessageBox.warning(None, "需要 cookies 驗證", "此影片有年齡限制，請先登入 YouTube 並匯出 cookies.txt，再於下載選項中選擇 cookies 檔案！\n\n詳見 https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp")
-            self.progress.emit(f"主要方法失敗: {str(e)}")
+            self.progress.emit(f"<span style=\"color: red;\">主要方法失敗: {str(e)}</span>")
             self.finished.emit(False, f"下載失敗: {str(e)}。建議升級 yt-dlp 或用 cookies。")
     
     def filter_formats(self, formats):
@@ -301,16 +380,48 @@ class DownloadThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("YouTube 影片下載器 / YouTube Video Downloader")
-        self.setMinimumSize(800, 600)
-        self.resize(1000, 800)  # 設定預設大小
         
-        # 初始化使用者偏好
+        # 設定視窗標題和大小
+        self.setWindowTitle("YouTube 下載器")
+        
+        # 檢查 FFmpeg
+        self.ffmpeg_path = find_ffmpeg_executable()
+        
+        # 載入用戶偏好設定
         self.preferences = UserPreferences()
         
-        # 設定視窗位置和大小
+        # 設定視窗大小和位置
         self.setup_window_geometry()
         
+        # 初始化 UI 元件
+        self.init_ui()
+        
+        # 載入最近使用的 URL
+        self.load_recent_urls()
+        
+        # 設定右鍵選單
+        self.setup_context_menu()
+        
+        # 初始化下載線程
+        self.download_thread = None
+        
+        # 檢查 FFmpeg 並顯示狀態
+        if self.ffmpeg_path:
+            self.update_progress(f"<span style=\"color: green;\">✓ FFmpeg 已找到: {self.ffmpeg_path}</span>")
+        else:
+            self.update_progress("<span style=\"color: orange;\">⚠️ 警告: 未找到 FFmpeg，某些格式可能無法下載。請安裝 FFmpeg 並確保它在系統路徑中。</span>")
+            QMessageBox.warning(self, "FFmpeg 未找到", 
+                              "未找到 FFmpeg，某些格式可能無法下載。\n\n"
+                              "請安裝 FFmpeg 並確保它在系統路徑中:\n"
+                              "1. 訪問 https://ffmpeg.org/download.html\n"
+                              "2. 下載適合您系統的版本\n"
+                              "3. 解壓縮並將 bin 目錄添加到系統 PATH 環境變數\n"
+                              "4. 重新啟動應用程式")
+        
+        # 顯示版本資訊
+        self.show_version_info()
+    
+    def init_ui(self):
         # --- 新增 QSplitter ---
         self.splitter = QSplitter()
         self.splitter.setOrientation(Qt.Horizontal)
