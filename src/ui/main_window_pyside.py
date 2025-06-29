@@ -212,51 +212,101 @@ class DownloadThread(QThread):
         self.url = url
         self.output_path = output_path
         self.format_choice = format_choice
+        
+        # 保存原始解析度選擇
         self.resolution_choice = resolution_choice
+            
         self.extract_audio_only = extract_audio_only
         self.filename_prefix = filename_prefix
-        self.format_string = format_string
+        
+        # 根據解析度選擇設定格式字符串
+        if resolution_choice == "1080P (Full HD)":
+            # 1080P 高畫質
+            self.format_string = "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+        elif resolution_choice == "720P (HD)" or resolution_choice == "最高品質" or resolution_choice == "自動選擇最佳":
+            # 720P 標準高清
+            self.format_string = "bestvideo[height<=720]+bestaudio/best[height<=720]"
+        elif format_string:
+            # 使用自定義格式字符串
+            self.format_string = format_string
+        else:
+            # 預設使用 720P
+            self.format_string = "bestvideo[height<=720]+bestaudio/best[height<=720]"
+            
         self.merge_output_format = merge_output_format
         self.fallback_to_webm = fallback_to_webm
         self.cookies_path = cookies_path
         self.formats = []
         self.format_id_map = {}
+        
+
     
     def cleanup_fragment_files(self, base_filename):
         """清理下載過程中產生的碎片文件"""
         import glob
         import os
+        import re
         
         # 查找所有可能的碎片文件
         pattern = os.path.join(self.output_path, f"{base_filename}.*")
         all_files = glob.glob(pattern)
         
-        # 找出主要文件（通常是最大的文件）
+        # 找出主要文件（通常是最大的文件且是 mp4 格式）
         main_file = None
         main_size = 0
+        
+        # 首先尋找 .mp4 文件作為主文件
         for f in all_files:
-            try:
-                size = os.path.getsize(f)
-                if size > main_size:
-                    main_size = size
-                    main_file = f
-            except:
-                pass
+            if f.lower().endswith('.mp4'):
+                try:
+                    size = os.path.getsize(f)
+                    if size > main_size:
+                        main_size = size
+                        main_file = f
+                except:
+                    pass
+        
+        # 如果沒找到 mp4，則選擇最大的文件
+        if not main_file:
+            for f in all_files:
+                try:
+                    size = os.path.getsize(f)
+                    if size > main_size:
+                        main_size = size
+                        main_file = f
+                except:
+                    pass
         
         if not main_file:
+            self.progress.emit("<span style=\"color: orange;\">⚠️ 找不到主要下載檔案</span>")
             return
         
         # 刪除所有碎片文件，保留主文件
+        fragment_count = 0
         for f in all_files:
             if f != main_file:
                 # 檢查文件名是否包含碎片標識
                 basename = os.path.basename(f)
-                if any(marker in basename for marker in ['.f', '.part', '.temp', '.tmp', '.webm', '.m4a']) or '.part' in basename:
+                # 碎片文件通常有這些特徵
+                is_fragment = (
+                    '.f' in basename or 
+                    '.part' in basename or 
+                    '.temp' in basename or 
+                    '.tmp' in basename or
+                    re.search(r'\.f\d+\.\w+$', basename) or  # 匹配 .f123.mp4 這樣的格式
+                    basename.endswith('.webm') or 
+                    basename.endswith('.m4a')
+                )
+                
+                if is_fragment:
                     try:
                         os.remove(f)
-                        self.progress.emit(f"<span style=\"color: orange;\">🗑️ 已刪除碎片檔案: {os.path.basename(f)}</span>")
-                    except:
-                        pass
+                        fragment_count += 1
+                    except Exception as e:
+                        self.progress.emit(f"<span style=\"color: orange;\">⚠️ 刪除碎片檔案失敗: {basename}, 錯誤: {str(e)}</span>")
+        
+        if fragment_count > 0:
+            self.progress.emit(f"<span style=\"color: green;\">✅ 已清理 {fragment_count} 個碎片檔案</span>")
     
     def run(self):
         try:
@@ -309,7 +359,7 @@ class DownloadThread(QThread):
                 if self.filename_prefix:
                     safe_title = f"{safe_filename(self.filename_prefix)}{safe_title}"
                 
-                # 使用安全的檔名，保留各國語言字符
+                                    # 使用安全的檔名，保留各國語言字符
                 download_opts = {
                     'outtmpl': os.path.join(self.output_path, f'{safe_title}.%(ext)s'),
                     'progress_hooks': [self.progress_hook],
@@ -337,36 +387,44 @@ class DownloadThread(QThread):
                     # 根據是否有 FFmpeg 決定下載策略
                     if ffmpeg_path:
                         # 有 FFmpeg，嘗試使用分離流
-                        if self.resolution_choice == "最高品質":
-                            # 優先使用分離流以獲得最高品質
-                            download_opts['format'] = 'bestvideo+bestaudio/best'
-                            self.progress.emit("使用最高品質模式 (分離視頻和音頻流)")
-                        elif self.resolution_choice == "1080P (Full HD)" and any(fmt.get('height') == 1080 for fmt in self.formats):
+                        # 根據解析度選擇設定格式
+                        if self.resolution_choice == "1080P (Full HD)":
                             # 使用高品質的1080P分離流
                             download_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
-                            self.progress.emit("使用 1080P 解析度 (分離視頻和音頻流)")
-                        elif self.resolution_choice == "720P (HD)" and any(fmt.get('height') == 720 for fmt in self.formats):
-                            # 使用高品質的720P分離流
+                        elif self.format_string:
+                            # 使用自定義格式字符串
+                            download_opts['format'] = self.format_string
+                        else:
+                            # 預設使用 720P 解析度
                             download_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+                        
+                        # 根據解析度顯示不同的訊息
+                        if self.resolution_choice == "1080P (Full HD)":
+                            self.progress.emit("使用 1080P 解析度 (分離視頻和音頻流)")
+                        elif self.resolution_choice == "720P (HD)" or self.resolution_choice == "自動選擇最佳":
                             self.progress.emit("使用 720P 解析度 (分離視頻和音頻流)")
                         else:
-                            # 預設使用最佳可用格式
-                            download_opts['format'] = 'bestvideo+bestaudio/best'
-                            self.progress.emit("使用預設最佳解析度 (分離視頻和音頻流)")
+                            self.progress.emit("使用 720P 解析度 (預設最高品質)")
                     else:
                         # 沒有 FFmpeg，直接使用單一格式
-                        if self.resolution_choice == "最高品質":
-                            download_opts['format'] = 'best'
-                            self.progress.emit("使用最高品質模式 (單一格式)")
-                        elif self.resolution_choice == "1080P (Full HD)":
-                            download_opts['format'] = 'best[height<=1080]'
+                        # 根據解析度選擇設定格式
+                        if self.resolution_choice == "1080P (Full HD)":
+                            # 使用 1080P 單一格式
+                            download_opts['format'] = 'best[height<=1080]/bestvideo[height<=1080]'
+                        elif self.format_string and "+" not in self.format_string:
+                            # 如果格式字符串不包含 "+"，可以直接用於單一格式
+                            download_opts['format'] = self.format_string
+                        else:
+                            # 預設使用 720P 解析度
+                            download_opts['format'] = 'best[height<=720]/bestvideo[height<=720]'
+                        
+                        # 根據解析度顯示不同的訊息
+                        if self.resolution_choice == "1080P (Full HD)":
                             self.progress.emit("使用 1080P 解析度 (單一格式)")
-                        elif self.resolution_choice == "720P (HD)":
-                            download_opts['format'] = 'best[height<=720]'
+                        elif self.resolution_choice == "720P (HD)" or self.resolution_choice == "自動選擇最佳":
                             self.progress.emit("使用 720P 解析度 (單一格式)")
                         else:
-                            download_opts['format'] = 'best'
-                            self.progress.emit("使用預設最佳解析度 (單一格式)")
+                            self.progress.emit("使用 720P 解析度 (預設最高品質)")
                     
                                     # 設置合併格式，優先使用 mp4
                     download_opts['merge_output_format'] = self.merge_output_format
@@ -397,6 +455,7 @@ class DownloadThread(QThread):
                     import glob
                     import time
                     before_files = set(glob.glob(os.path.join(self.output_path, "*")))
+
                     
                     # 嘗試下載
                     try:
@@ -2773,5 +2832,7 @@ class MainWindow(QMainWindow):
         self.log_output.verticalScrollBar().setValue(
             self.log_output.verticalScrollBar().maximum()
         )
+
+
 
  

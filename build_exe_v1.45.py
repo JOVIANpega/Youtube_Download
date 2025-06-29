@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-YouTube 下載器構建腳本 V1.45
+YouTube 下載器構建腳本 V1.46
 自動下載 FFmpeg 功能版本
 """
 
@@ -49,7 +49,7 @@ def build_exe():
         '--onedir',
         '--windowed',
         '--clean',
-        '--name', 'YouTube下載器_V1.45',
+        '--name', 'YouTubeDownloader_V1.46',
         '--add-data', 'VERSION;.',
         '--add-data', 'user_preferences.json;.',
     ]
@@ -70,7 +70,7 @@ def copy_additional_files():
     """複製額外文件到 dist 目錄"""
     print("複製額外文件...")
     
-    dist_dir = Path("dist/YouTube下載器_V1.45")
+    dist_dir = Path("dist/YouTubeDownloader_V1.46")
     os.makedirs(dist_dir, exist_ok=True)
     
     # 複製版本文件
@@ -81,7 +81,7 @@ def copy_additional_files():
         shutil.copy2("user_preferences.json", dist_dir)
     
     # 複製說明文件
-    for doc_file in ["README.md", "使用說明.md", "執行說明.md", "RELEASE_NOTES_V1.45.md"]:
+    for doc_file in ["README.md", "使用說明.md", "執行說明.md", "RELEASE_NOTES_V1.46.md"]:
         if os.path.exists(doc_file):
             shutil.copy2(doc_file, dist_dir)
     
@@ -94,8 +94,8 @@ def create_zip():
     """創建 ZIP 壓縮檔"""
     print("創建 ZIP 壓縮檔...")
     
-    dist_dir = Path("dist/YouTube下載器_V1.45")
-    output_zip = f"YouTube下載器_V1.45_{platform.system()}.zip"
+    dist_dir = Path("dist/YouTubeDownloader_V1.46")
+    output_zip = f"YouTubeDownloader_V1.46_{platform.system()}.zip"
     
     # 檢查操作系統
     if platform.system() == "Windows":
@@ -118,7 +118,7 @@ def create_zip():
 
 def main():
     """主函數"""
-    print("YouTube 下載器構建腳本 V1.45")
+    print("YouTube 下載器構建腳本 V1.46")
     print("============================")
     
     # 檢查 PyInstaller
@@ -138,7 +138,7 @@ def main():
     create_zip()
     
     print("構建過程完成！")
-    print(f"可執行檔位於: dist/YouTube下載器_V1.45/YouTube下載器_V1.45{'.exe' if platform.system() == 'Windows' else ''}")
+    print(f"可執行檔位於: dist/YouTubeDownloader_V1.46/YouTubeDownloader_V1.46{'.exe' if platform.system() == 'Windows' else ''}")
 
 if __name__ == "__main__":
     main() 
