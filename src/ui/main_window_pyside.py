@@ -1285,9 +1285,14 @@ class MainWindow(QMainWindow):
         """瀏覽下載路徑"""
         folder = QFileDialog.getExistingDirectory(self, "選擇下載資料夾")
         if folder:
+            # 確保路徑格式正確
+            folder = os.path.normpath(folder)
+            # 更新 UI 顯示
             self.path_input.setText(folder)
             # 記住下載路徑
             self.preferences.set_download_path(folder)
+            # 在日誌中顯示所選路徑
+            self.log_output.append(f"<span style=\"color: green;\">✅ 已選擇下載路徑: {folder}</span>")
 
     def browse_cookies(self):
         file, _ = QFileDialog.getOpenFileName(self, "選擇 cookies.txt", "", "Cookies (*.txt)")
