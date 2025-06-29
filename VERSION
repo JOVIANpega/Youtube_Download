@@ -1,10 +1,10 @@
-V1.1.3
-2024-12-19
+V1.4
+2024-12-25
 
-YouTube 影片下載器 - 初始版本發布
-YouTube Video Downloader - Initial Release
-YouTube動画ダウンローダー - 初回リリース
-YouTube 비디오 다운로더 - 초기 릴리스
+YouTube 影片下載器 - 高解析度支援版本
+YouTube Video Downloader - High Resolution Support Version
+YouTube動画ダウンローダー - 高解像度サポートバージョン
+YouTube 비디오 다운로더 - 고해상도 지원 버전
 
 主要功能 / Main Features / 主な機能 / 주요 기능:
 - 多格式影片下載支援
@@ -30,4 +30,9 @@ YouTube 비디오 다운로더 - 초기 릴리스
 - 未先獲取資訊時彈窗提示
 - 開啟檔案目錄多層 fallback，最大化協助用戶找到檔案
 - 強化檔案名稱清理，避免特殊字元導致問題
-- 解析度選單預設 720P，支援自動 fallback webm 
+- 解析度選單預設 720P，支援自動 fallback webm
+- 新增前綴歷史記錄功能，可選擇和刪除
+- 新增檢查更新按鈕，方便更新 yt-dlp
+- 強化高解析度下載支援，可選擇 1080P 及更高解析度
+- 改進合併失敗處理，保留已下載檔案
+- 多層備用下載策略，確保下載成功率 

@@ -187,11 +187,41 @@ class UserPreferences:
     # 檔案名稱前綴設定
     def get_filename_prefix(self) -> str:
         """獲取檔案名稱前綴"""
-        return self.get("filename_prefix", "")
+        return self.get("filename_prefix", "TEST-")
     
     def set_filename_prefix(self, prefix: str) -> bool:
         """設定檔案名稱前綴"""
+        # 同時添加到前綴歷史
+        if prefix:
+            self.add_prefix_history(prefix)
         return self.set("filename_prefix", prefix)
+    
+    def get_prefix_history(self) -> list:
+        """獲取前綴歷史記錄"""
+        return self.get("prefix_history", [])
+    
+    def add_prefix_history(self, prefix: str) -> bool:
+        """添加前綴到歷史記錄"""
+        if not prefix:
+            return False
+            
+        prefix_history = self.get("prefix_history", [])
+        # 移除重複的前綴
+        if prefix in prefix_history:
+            prefix_history.remove(prefix)
+        # 添加到開頭
+        prefix_history.insert(0, prefix)
+        # 只保留最近 10 個
+        prefix_history = prefix_history[:10]
+        return self.set("prefix_history", prefix_history)
+        
+    def remove_prefix_history(self, prefix: str) -> bool:
+        """從歷史記錄中移除前綴"""
+        prefix_history = self.get("prefix_history", [])
+        if prefix in prefix_history:
+            prefix_history.remove(prefix)
+            return self.set("prefix_history", prefix_history)
+        return False
     
     # 統計資訊
     def get_statistics(self) -> Dict[str, Any]:

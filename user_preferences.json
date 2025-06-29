@@ -16,6 +16,55 @@
   ],
   "download_history": [
     {
+      "url": "https://www.youtube.com/watch?v=WO0wJCW0WsA&t=2s",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T08:47:11.178711"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=WO0wJCW0WsA&t=2s",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T08:43:06.947956"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=WO0wJCW0WsA&t=2s",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T08:37:58.219633"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=WO0wJCW0WsA&t=2s",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T07:53:44.072390"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=6k6naDalhFw",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T07:48:00.000204"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=FuS0_thqDBA",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T07:41:33.072043"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=FuS0_thqDBA",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T07:40:07.484556"
+    },
+    {
       "url": "https://www.youtube.com/watch?v=FuS0_thqDBA",
       "title": "未知標題",
       "format": "影片",
@@ -260,7 +309,20 @@
   "show_completion_dialog": false,
   "filename_prefix": "Test-",
   "splitter_sizes": [
-    478,
-    473
-  ]
+    433,
+    518
+  ],
+  "prefix_history": [
+    "Test-",
+    "Tes-",
+    "Te-",
+    "T-",
+    "Per best2-",
+    "Per best2",
+    "Per best",
+    "Per bes",
+    "Per be",
+    "Per b"
+  ],
+  "log_font_size": 10
 }
