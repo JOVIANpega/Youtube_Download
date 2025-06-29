@@ -148,28 +148,28 @@ class DownloadThread(QThread):
                         'preferredquality': '192',
                     }]
                 else:
-                    # 改進解析度選擇邏輯，優先使用單一格式而非分離的視頻和音頻流
+                    # 優化解析度選擇邏輯，平衡高解析度和合併成功率
                     if self.resolution_choice == "最高品質":
-                        # 嘗試先找單一格式的高品質視頻
-                        download_opts['format'] = 'best/bestvideo+bestaudio'
-                        self.progress.emit("使用最高品質模式 (優先單一格式)")
+                        # 優先使用分離流以獲得最高品質，但增強合併參數
+                        download_opts['format'] = 'bestvideo+bestaudio/best'
+                        self.progress.emit("使用最高品質模式 (分離視頻和音頻流)")
                     elif self.resolution_choice == "1080P (Full HD)" and any(fmt.get('height') == 1080 for fmt in self.formats):
-                        # 先尋找單一格式的1080P，如果沒有再使用分離流
-                        download_opts['format'] = 'best[height<=1080]/bestvideo[height<=1080]+bestaudio'
-                        self.progress.emit("使用 1080P 解析度 (優先單一格式)")
+                        # 先尋找高品質的1080P分離流，如果合併失敗再嘗試單一格式
+                        download_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+                        self.progress.emit("使用 1080P 解析度")
                     elif self.resolution_choice == "720P (HD)" and any(fmt.get('height') == 720 for fmt in self.formats):
-                        # 先尋找單一格式的720P，如果沒有再使用分離流
-                        download_opts['format'] = 'best[height<=720]/bestvideo[height<=720]+bestaudio'
-                        self.progress.emit("使用 720P 解析度 (優先單一格式)")
+                        # 先尋找高品質的720P分離流，如果合併失敗再嘗試單一格式
+                        download_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+                        self.progress.emit("使用 720P 解析度")
                     else:
-                        # 預設使用最佳可用格式，優先單一格式
-                        download_opts['format'] = 'best/bestvideo+bestaudio'
-                        self.progress.emit("使用預設最佳解析度 (優先單一格式)")
+                        # 預設使用最佳可用格式
+                        download_opts['format'] = 'bestvideo+bestaudio/best'
+                        self.progress.emit("使用預設最佳解析度")
                     
                     # 設置合併格式，優先使用 mp4
                     download_opts['merge_output_format'] = self.merge_output_format
                     
-                    # 添加額外的 FFmpeg 參數，嘗試解決合併問題
+                    # 添加額外的 FFmpeg 參數，優化合併過程
                     download_opts['postprocessor_args'] = [
                         '-c:v', 'copy',
                         '-c:a', 'aac',  # 使用 AAC 音頻編碼，更兼容
@@ -216,49 +216,52 @@ class DownloadThread(QThread):
                     
                     # 檢查是否是合併錯誤
                     if "Postprocessing" in str(e) and "Could not write header" in str(e):
-                        self.progress.emit("<span style=\"color: orange;\">⚠️ 合併視頻和音頻失敗，嘗試使用單一格式下載...</span>")
+                        self.progress.emit("<span style=\"color: orange;\">⚠️ 合併視頻和音頻失敗，保留所有已下載的檔案...</span>")
                         
-                        # 直接嘗試使用單一格式下載
-                        download_opts['format'] = 'best/18'  # 優先使用最佳單一格式，備用使用 360p MP4
-                        download_opts.pop('postprocessor_args', None)  # 移除 FFmpeg 參數
+                        # 查找已下載的檔案
+                        import glob
+                        pattern = os.path.join(self.output_path, f"{safe_title}.*")
+                        files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
                         
-                        try:
-                            with yt_dlp.YoutubeDL(download_opts) as ydl:
-                                ydl.download([self.url])
-                            self.progress.emit("<span style=\"color: green;\">✅ 使用單一格式下載成功</span>")
+                        if files:
+                            # 找到所有下載的檔案
+                            self.progress.emit("<span style=\"color: green;\">✅ 已找到下載的檔案：</span>")
+                            for i, file in enumerate(files):
+                                file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
+                                self.progress.emit(f"<span style=\"color: green;\">{i+1}. {os.path.basename(file)} ({file_size:.1f} MB)</span>")
                             
-                            # 查找下載的檔案
-                            import glob
-                            pattern = os.path.join(self.output_path, f"{safe_title}.*")
-                            files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
-                            
-                            if files:
-                                actual_filename = os.path.basename(files[0])
-                                self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
-                                return
-                        except Exception as e2:
-                            self.progress.emit(f"<span style=\"color: red;\">單一格式下載也失敗: {str(e2)}</span>")
-                            
-                            # 嘗試保留已下載的檔案
-                            self.progress.emit("<span style=\"color: orange;\">⚠️ 嘗試保留已下載的檔案...</span>")
-                            
-                            # 查找已下載的檔案
-                            import glob
-                            pattern = os.path.join(self.output_path, f"{safe_title}.*")
-                            files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
-                            
-                            if files:
-                                # 找到最大的檔案（可能是視頻檔案）
-                                largest_file = max(files, key=os.path.getsize)
-                                actual_filename = os.path.basename(largest_file)
-                                self.progress.emit(f"<span style=\"color: green;\">✅ 保留已下載的檔案：{actual_filename}</span>")
-                                self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
-                                return
+                            # 將檔案列表傳遞給主視窗，顯示選擇對話框
+                            self.finished.emit(True, f"MULTI_FILES:{','.join(files)}")
+                            return
+                        
+                        # 如果找不到已下載的檔案，嘗試使用單一格式下載
+                        self.progress.emit("<span style=\"color: orange;\">⚠️ 找不到已下載的檔案，嘗試使用單一格式下載...</span>")
+                    
+                    # 嘗試使用單一高解析度格式
+                    self.progress.emit("<span style=\"color: orange;\">⚠️ 嘗試使用高解析度單一格式...</span>")
+                    download_opts['format'] = 'best[height>=720]/best'  # 優先使用720P或更高的單一格式
+                    download_opts.pop('postprocessor_args', None)  # 移除 FFmpeg 參數
+                    
+                    try:
+                        with yt_dlp.YoutubeDL(download_opts) as ydl:
+                            ydl.download([self.url])
+                        self.progress.emit("<span style=\"color: green;\">✅ 使用高解析度單一格式下載成功</span>")
+                        
+                        # 查找下載的檔案
+                        import glob
+                        pattern = os.path.join(self.output_path, f"{safe_title}.*")
+                        files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
+                        
+                        if files:
+                            actual_filename = os.path.basename(files[0])
+                            self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
+                            return
+                    except Exception as e2:
+                        self.progress.emit(f"<span style=\"color: red;\">高解析度單一格式下載失敗: {str(e2)}</span>")
                     
                     # 如果以上方法都失敗，嘗試使用 360p 格式
                     self.progress.emit("<span style=\"color: orange;\">⚠️ 嘗試使用標準 360p 格式...</span>")
                     download_opts['format'] = '18/best'  # 18 是 360p MP4 格式
-                    download_opts.pop('postprocessor_args', None)  # 移除 FFmpeg 參數
                     
                     try:
                         with yt_dlp.YoutubeDL(download_opts) as ydl:
@@ -1045,49 +1048,141 @@ class MainWindow(QMainWindow):
         )
     
     def download_finished(self, success, message):
-        """下載完成"""
+        """下載完成時的處理"""
+        # 移除進度條
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        
+        # 啟用按鈕
+        self.fetch_button.setEnabled(True)
         self.download_button.setEnabled(True)
         self.stop_button.setEnabled(False)
-        self.progress_bar.setVisible(False)
+        self.download_button.setText("開始下載")
+        
+        # 處理多檔案選擇情況
+        if success and message.startswith("MULTI_FILES:"):
+            files = message.replace("MULTI_FILES:", "").split(",")
+            self.show_file_selection_dialog(files)
+            return
+        
+        # 顯示結果
         if success:
-            if "下載完成！檔案名稱:" in message:
-                filename = message.split("下載完成！檔案名稱: ")[1]
-                download_path = self.path_input.text()
-                full_path = os.path.join(download_path, filename)
-                completion_message = f"""<span style="color: green;">
-✅ 下載完成！
-
-📁 檔案位置: {download_path}
-📄 檔案名稱: {filename}
-完整路徑: {full_path}
-
-您可以在檔案總管中開啟資料夾查看下載的檔案。
-</span>"""
-                self.log_output.append(completion_message)
+            self.update_progress(f"<span style=\"color: green;\">✅ {message}</span>")
+            
+            # 提取檔案路徑和檔名
+            parts = message.split("檔案名稱: ")
+            if len(parts) > 1:
+                filename = parts[1]
+                file_path = os.path.join(self.path_input.text(), filename)
                 
-                # 直接使用 UI 元素的狀態，而不是偏好設定
-                show_dialog = self.show_completion_dialog.isChecked()
-                if show_dialog:
-                    self.show_completion_dialog_with_options(download_path, filename, success=True)
-                # 如果未勾選，則不顯示任何對話框
+                # 檢查檔案是否存在
+                if os.path.exists(file_path):
+                    # 顯示完成對話框
+                    if self.show_completion_dialog.isChecked():
+                        self.show_completion_dialog_with_options(self.path_input.text(), filename)
+                else:
+                    self.update_progress("<span style=\"color: orange;\">⚠️ 警告：找不到下載的檔案，可能已被移動或重命名</span>")
             else:
                 self.log_output.append(message)
                 # 直接使用 UI 元素的狀態，而不是偏好設定
-                show_dialog = self.show_completion_dialog.isChecked()
-                if show_dialog:
+                if self.show_completion_dialog.isChecked():
                     QMessageBox.information(self, "完成", "下載完成！")
-                # 如果未勾選，則不顯示任何對話框
         else:
-            self.log_output.append(f'<span style="color: red;">❌ 下載失敗: {message}</span>')
-            # 直接使用 UI 元素的狀態，而不是偏好設定
-            show_dialog = self.show_completion_dialog.isChecked()
-            if show_dialog:
+            self.update_progress(f"<span style=\"color: red;\">❌ {message}</span>")
+            self.analyze_download_error(message)
+            
+            # 如果勾選了顯示完成對話框，則顯示失敗對話框
+            if self.show_completion_dialog.isChecked():
                 self.show_completion_dialog_with_options(self.path_input.text(), "", success=False, fail_message=message)
-            # 如果未勾選，則不顯示任何對話框，只在日誌中顯示錯誤訊息
+        
+        # 記錄下載歷史
         url = self.url_input.text().strip()
         title = "未知標題"
         format_choice = self.get_format_choice()
         self.preferences.add_download_history(url, title, format_choice, success)
+    
+    def show_file_selection_dialog(self, files):
+        """顯示檔案選擇對話框"""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QListWidget, QPushButton, QHBoxLayout
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("選擇要保留的檔案")
+        dialog.setMinimumWidth(500)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 說明標籤
+        label = QLabel("合併視頻和音頻失敗，請選擇要保留的檔案：")
+        layout.addWidget(label)
+        
+        # 檔案列表
+        file_list = QListWidget()
+        for file in files:
+            file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
+            file_list.addItem(f"{os.path.basename(file)} ({file_size:.1f} MB)")
+        layout.addWidget(file_list)
+        
+        # 按鈕
+        button_layout = QHBoxLayout()
+        
+        keep_all_button = QPushButton("全部保留")
+        keep_all_button.clicked.connect(lambda: self.handle_file_selection(files, None, dialog))
+        
+        select_button = QPushButton("保留選擇的檔案")
+        select_button.clicked.connect(lambda: self.handle_file_selection(files, file_list.currentRow(), dialog))
+        
+        cancel_button = QPushButton("取消")
+        cancel_button.clicked.connect(dialog.reject)
+        
+        button_layout.addWidget(keep_all_button)
+        button_layout.addWidget(select_button)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        
+        # 顯示對話框
+        dialog.exec()
+    
+    def handle_file_selection(self, files, selected_index, dialog):
+        """處理檔案選擇結果"""
+        dialog.accept()
+        
+        if selected_index is None:
+            # 全部保留
+            self.update_progress("<span style=\"color: green;\">✅ 已保留所有檔案</span>")
+            
+            # 顯示檔案列表
+            for file in files:
+                file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
+                self.update_progress(f"<span style=\"color: green;\">- {os.path.basename(file)} ({file_size:.1f} MB)</span>")
+            
+            # 找到最大的檔案作為主要結果
+            largest_file = max(files, key=os.path.getsize)
+            filename = os.path.basename(largest_file)
+            
+            # 顯示完成對話框
+            if self.show_completion_dialog.isChecked():
+                self.show_completion_dialog_with_options(self.path_input.text(), filename)
+        
+        elif 0 <= selected_index < len(files):
+            # 保留選擇的檔案
+            selected_file = files[selected_index]
+            filename = os.path.basename(selected_file)
+            
+            self.update_progress(f"<span style=\"color: green;\">✅ 已保留檔案：{filename}</span>")
+            
+            # 刪除其他檔案
+            for file in files:
+                if file != selected_file:
+                    try:
+                        os.remove(file)
+                        self.update_progress(f"<span style=\"color: orange;\">🗑️ 已刪除：{os.path.basename(file)}</span>")
+                    except:
+                        self.update_progress(f"<span style=\"color: red;\">❌ 無法刪除：{os.path.basename(file)}</span>")
+            
+            # 顯示完成對話框
+            if self.show_completion_dialog.isChecked():
+                self.show_completion_dialog_with_options(self.path_input.text(), filename)
     
     def closeEvent(self, event: QCloseEvent):
         """關閉視窗時儲存設定"""
