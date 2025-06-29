@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QLineEdit, QTextEdit, 
                              QProgressBar, QComboBox, QFileDialog, QMessageBox,
-                             QGroupBox, QGridLayout, QCheckBox, QMenu, QRadioButton, QButtonGroup, QSplitter, QListWidget)
+                             QGroupBox, QGridLayout, QCheckBox, QMenu, QRadioButton, QButtonGroup, QSplitter, QListWidget, QTextBrowser)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QCloseEvent, QAction
 import yt_dlp
@@ -12,27 +12,143 @@ import re
 import time
 import subprocess
 import platform
+import shutil
+import zipfile
+import urllib.request
+import threading
+from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from user_preferences import UserPreferences
 
-def safe_filename(filename, max_length=100):
-    """全域安全檔名函式：允許各國語言文字、數字、底線、減號、點，只過濾 Windows 不允許的字符"""
-    # 只過濾掉Windows不允許的字符: \ / : * ? " < > |
-    filename = re.sub(r'[\\\/\:\*\?\"\<\>\|]', '_', filename)
-    filename = filename.strip(' .')
-    if len(filename) > max_length:
-        filename = filename[:max_length]
-    if not filename:
-        filename = "YouTube_Video"
-    return filename
+# 新增 FFmpeg 下載和管理功能
+def get_ffmpeg_dir():
+    """獲取 FFmpeg 存放目錄"""
+    # 在應用程式目錄下創建 ffmpeg_bin 資料夾
+    if hasattr(sys, '_MEIPASS'):  # PyInstaller 打包後的路徑
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    
+    ffmpeg_dir = os.path.join(base_dir, "ffmpeg_bin")
+    os.makedirs(ffmpeg_dir, exist_ok=True)
+    return ffmpeg_dir
+
+def get_ffmpeg_path():
+    """獲取 FFmpeg 可執行檔案路徑"""
+    ffmpeg_dir = get_ffmpeg_dir()
+    
+    # 根據作業系統確定 FFmpeg 檔案名稱
+    if platform.system() == "Windows":
+        ffmpeg_path = os.path.join(ffmpeg_dir, "ffmpeg.exe")
+    else:
+        ffmpeg_path = os.path.join(ffmpeg_dir, "ffmpeg")
+    
+    return ffmpeg_path
+
+def is_ffmpeg_downloaded():
+    """檢查 FFmpeg 是否已下載"""
+    ffmpeg_path = get_ffmpeg_path()
+    return os.path.exists(ffmpeg_path) and os.path.getsize(ffmpeg_path) > 1000000  # 確保檔案大小合理
+
+def download_ffmpeg(progress_callback=None):
+    """下載 FFmpeg 並解壓到指定目錄"""
+    ffmpeg_dir = get_ffmpeg_dir()
+    ffmpeg_path = get_ffmpeg_path()
+    
+    # 如果已經下載，則不重複下載
+    if is_ffmpeg_downloaded():
+        if progress_callback:
+            progress_callback("FFmpeg 已存在，無需重複下載")
+        return ffmpeg_path
+    
+    if progress_callback:
+        progress_callback("正在下載 FFmpeg...")
+    
+    # 根據作業系統選擇下載連結
+    if platform.system() == "Windows":
+        # Windows 版本 (選擇體積較小的 essentials 版本)
+        url = "https://github.com/GyanD/codexffmpeg/releases/download/6.1.1/ffmpeg-6.1.1-essentials_build.zip"
+        zip_path = os.path.join(ffmpeg_dir, "ffmpeg.zip")
+        
+        # 下載 FFmpeg
+        try:
+            if progress_callback:
+                progress_callback("下載 FFmpeg 中，請稍候...")
+            
+            # 使用 urllib 下載檔案
+            urllib.request.urlretrieve(url, zip_path)
+            
+            if progress_callback:
+                progress_callback("FFmpeg 下載完成，正在解壓...")
+            
+            # 解壓縮檔案
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(ffmpeg_dir)
+            
+            # 找到解壓後的 ffmpeg.exe 路徑
+            extracted_dir = None
+            for item in os.listdir(ffmpeg_dir):
+                if os.path.isdir(os.path.join(ffmpeg_dir, item)) and "ffmpeg" in item.lower():
+                    extracted_dir = os.path.join(ffmpeg_dir, item)
+                    break
+            
+            if extracted_dir:
+                # 移動 ffmpeg.exe 到根目錄
+                bin_dir = os.path.join(extracted_dir, "bin")
+                if os.path.exists(bin_dir):
+                    for file in os.listdir(bin_dir):
+                        if file.lower() in ["ffmpeg.exe", "ffprobe.exe"]:
+                            src = os.path.join(bin_dir, file)
+                            dst = os.path.join(ffmpeg_dir, file)
+                            shutil.copy2(src, dst)
+                
+                # 清理解壓目錄
+                shutil.rmtree(extracted_dir)
+            
+            # 刪除 zip 檔
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+            
+            if progress_callback:
+                progress_callback("FFmpeg 設置完成")
+            
+            return ffmpeg_path
+            
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"下載 FFmpeg 失敗: {str(e)}")
+            return None
+    else:
+        # Linux/macOS 版本 - 建議使用系統包管理器安裝
+        if progress_callback:
+            progress_callback("非 Windows 系統請使用系統包管理器安裝 FFmpeg")
+        return None
+
+def test_ffmpeg(ffmpeg_path):
+    """測試 FFmpeg 是否可用"""
+    try:
+        result = subprocess.run([ffmpeg_path, "-version"], 
+                              capture_output=True, text=True, timeout=5)
+        return result.returncode == 0, result.stdout
+    except Exception as e:
+        return False, str(e)
 
 def find_ffmpeg_executable():
-    """尋找 FFmpeg 可執行文件路徑"""
+    """尋找 FFmpeg 可執行文件路徑，優先使用下載的版本"""
+    # 檢查是否有下載的 FFmpeg
+    ffmpeg_path = get_ffmpeg_path()
+    if is_ffmpeg_downloaded():
+        is_working, _ = test_ffmpeg(ffmpeg_path)
+        if is_working:
+            return ffmpeg_path
+    
+    # 如果下載的版本不可用，嘗試系統路徑
     try:
         # 先嘗試直接執行 ffmpeg 命令
         result = subprocess.run(['ffmpeg', '-version'], 
                               capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
+            # 確認 ffmpeg 命令確實可用
             return 'ffmpeg'  # 在 PATH 中找到
     except:
         pass
@@ -75,6 +191,17 @@ def find_ffmpeg_executable():
     
     return None  # 未找到 FFmpeg
 
+def safe_filename(filename, max_length=100):
+    """全域安全檔名函式：允許各國語言文字、數字、底線、減號、點，只過濾 Windows 不允許的字符"""
+    # 只過濾掉Windows不允許的字符: \ / : * ? " < > |
+    filename = re.sub(r'[\\\/\:\*\?\"\<\>\|]', '_', filename)
+    filename = filename.strip(' .')
+    if len(filename) > max_length:
+        filename = filename[:max_length]
+    if not filename:
+        filename = "YouTube_Video"
+    return filename
+
 class DownloadThread(QThread):
     progress = Signal(str)
     finished = Signal(bool, str)
@@ -106,15 +233,35 @@ class DownloadThread(QThread):
                 'ignoreerrors': False,
                 'socket_timeout': 30,
                 'retries': 3,
+                'keepvideo': True,  # 保留部分下載的視頻檔案
+                'nopart': False,    # 允許部分下載
+                'abort_on_error': False,  # 不因錯誤中止
             }
             
             # 檢查並設置 FFmpeg 路徑
-            ffmpeg_path = find_ffmpeg_executable()
-            if ffmpeg_path:
-                self.progress.emit(f"<span style=\"color: green;\">✓ 已找到 FFmpeg: {ffmpeg_path}</span>")
-                ydl_opts['ffmpeg_location'] = ffmpeg_path
+            # 優先使用下載的 FFmpeg
+            if is_ffmpeg_downloaded():
+                ffmpeg_path = get_ffmpeg_path()
+                is_working, _ = test_ffmpeg(ffmpeg_path)
+                if is_working:
+                    self.progress.emit(f"<span style=\"color: green;\">✓ 使用下載的 FFmpeg: {ffmpeg_path}</span>")
+                    ydl_opts['ffmpeg_location'] = ffmpeg_path
+                else:
+                    self.progress.emit("<span style=\"color: orange;\">⚠️ 下載的 FFmpeg 無法使用，嘗試尋找系統安裝的版本</span>")
+                    ffmpeg_path = find_ffmpeg_executable()
+                    if ffmpeg_path:
+                        self.progress.emit(f"<span style=\"color: green;\">✓ 已找到系統 FFmpeg: {ffmpeg_path}</span>")
+                        ydl_opts['ffmpeg_location'] = ffmpeg_path
+                    else:
+                        self.progress.emit("<span style=\"color: orange;\">⚠️ 未找到 FFmpeg，將使用單一格式下載</span>")
             else:
-                self.progress.emit("<span style=\"color: orange;\">⚠️ 未找到 FFmpeg，可能無法處理某些格式</span>")
+                # 如果沒有下載的版本，嘗試尋找系統安裝的版本
+                ffmpeg_path = find_ffmpeg_executable()
+                if ffmpeg_path:
+                    self.progress.emit(f"<span style=\"color: green;\">✓ 已找到系統 FFmpeg: {ffmpeg_path}</span>")
+                    ydl_opts['ffmpeg_location'] = ffmpeg_path
+                else:
+                    self.progress.emit("<span style=\"color: orange;\">⚠️ 未找到 FFmpeg，將使用單一格式下載</span>")
             
             if self.cookies_path:
                 ydl_opts['cookies'] = self.cookies_path
@@ -134,6 +281,9 @@ class DownloadThread(QThread):
                     'ignoreerrors': False,
                     'socket_timeout': 30,
                     'retries': 3,
+                    'keepvideo': True,  # 保留部分下載的視頻檔案
+                    'nopart': False,    # 允許部分下載
+                    'abort_on_error': False,  # 不因錯誤中止
                 }
                 
                 # 設置 FFmpeg 路徑
@@ -148,40 +298,242 @@ class DownloadThread(QThread):
                         'preferredquality': '192',
                     }]
                 else:
-                    # 優化解析度選擇邏輯，平衡高解析度和合併成功率
-                    if self.resolution_choice == "最高品質":
-                        # 優先使用分離流以獲得最高品質，但增強合併參數
-                        download_opts['format'] = 'bestvideo+bestaudio/best'
-                        self.progress.emit("使用最高品質模式 (分離視頻和音頻流)")
-                    elif self.resolution_choice == "1080P (Full HD)" and any(fmt.get('height') == 1080 for fmt in self.formats):
-                        # 先尋找高品質的1080P分離流，如果合併失敗再嘗試單一格式
-                        download_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
-                        self.progress.emit("使用 1080P 解析度")
-                    elif self.resolution_choice == "720P (HD)" and any(fmt.get('height') == 720 for fmt in self.formats):
-                        # 先尋找高品質的720P分離流，如果合併失敗再嘗試單一格式
-                        download_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
-                        self.progress.emit("使用 720P 解析度")
+                    # 根據是否有 FFmpeg 決定下載策略
+                    if ffmpeg_path:
+                        # 有 FFmpeg，嘗試使用分離流
+                        if self.resolution_choice == "最高品質":
+                            # 優先使用分離流以獲得最高品質
+                            download_opts['format'] = 'bestvideo+bestaudio/best'
+                            self.progress.emit("使用最高品質模式 (分離視頻和音頻流)")
+                        elif self.resolution_choice == "1080P (Full HD)" and any(fmt.get('height') == 1080 for fmt in self.formats):
+                            # 使用高品質的1080P分離流
+                            download_opts['format'] = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'
+                            self.progress.emit("使用 1080P 解析度 (分離視頻和音頻流)")
+                        elif self.resolution_choice == "720P (HD)" and any(fmt.get('height') == 720 for fmt in self.formats):
+                            # 使用高品質的720P分離流
+                            download_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]'
+                            self.progress.emit("使用 720P 解析度 (分離視頻和音頻流)")
+                        else:
+                            # 預設使用最佳可用格式
+                            download_opts['format'] = 'bestvideo+bestaudio/best'
+                            self.progress.emit("使用預設最佳解析度 (分離視頻和音頻流)")
                     else:
-                        # 預設使用最佳可用格式
-                        download_opts['format'] = 'bestvideo+bestaudio/best'
-                        self.progress.emit("使用預設最佳解析度")
+                        # 沒有 FFmpeg，直接使用單一格式
+                        if self.resolution_choice == "最高品質":
+                            download_opts['format'] = 'best'
+                            self.progress.emit("使用最高品質模式 (單一格式)")
+                        elif self.resolution_choice == "1080P (Full HD)":
+                            download_opts['format'] = 'best[height<=1080]'
+                            self.progress.emit("使用 1080P 解析度 (單一格式)")
+                        elif self.resolution_choice == "720P (HD)":
+                            download_opts['format'] = 'best[height<=720]'
+                            self.progress.emit("使用 720P 解析度 (單一格式)")
+                        else:
+                            download_opts['format'] = 'best'
+                            self.progress.emit("使用預設最佳解析度 (單一格式)")
                     
                     # 設置合併格式，優先使用 mp4
                     download_opts['merge_output_format'] = self.merge_output_format
                     
-                    # 添加額外的 FFmpeg 參數，優化合併過程
-                    download_opts['postprocessor_args'] = [
-                        '-c:v', 'copy',
-                        '-c:a', 'aac',  # 使用 AAC 音頻編碼，更兼容
-                        '-strict', 'experimental'
-                    ]
+                    # 添加更穩定的 FFmpeg 參數
+                    if ffmpeg_path:
+                        download_opts['postprocessor_args'] = [
+                            '-c:v', 'copy',
+                            '-c:a', 'aac',  # 使用 AAC 音頻編碼，更兼容
+                            '-strict', 'experimental',
+                            '-movflags', '+faststart'  # 優化 MP4 檔案結構
+                        ]
+                    
+                    # 禁用部分後處理，以便在合併失敗時保留原始檔案
+                    download_opts['keepvideo'] = True  # 保留原始視頻檔案
+                    download_opts['keep_fragments'] = True  # 保留所有下載的片段
                 
                 self.progress.emit(f"開始下載: {video_title} ({download_opts['format']})")
                 
                 try:
+                    # 保存原始下載目錄內容，用於比較
+                    import glob
+                    import time
+                    before_files = set(glob.glob(os.path.join(self.output_path, "*")))
+                    
                     # 嘗試下載
-                    with yt_dlp.YoutubeDL(download_opts) as ydl:
-                        ydl.download([self.url])
+                    try:
+                        with yt_dlp.YoutubeDL(download_opts) as ydl:
+                            ydl.download([self.url])
+                    except Exception as e:
+                        # 捕獲下載錯誤，但繼續檢查是否有部分檔案下載
+                        self.progress.emit(f"<span style=\"color: orange;\">⚠️ 下載過程中出現錯誤: {str(e)}</span>")
+                        
+                        # 檢查是否有 FFmpeg 相關錯誤
+                        if "ffmpeg" in str(e).lower():
+                            self.progress.emit("<span style=\"color: orange;\">⚠️ 檢測到 FFmpeg 相關錯誤，嘗試直接下載分離的視頻和音頻檔案...</span>")
+                            
+                            # 等待一下確保文件寫入完成
+                            time.sleep(1)
+                            
+                            # 先嘗試直接下載視頻部分
+                            self.progress.emit("<span style=\"color: blue;\">ℹ️ 嘗試下載高畫質視頻檔案...</span>")
+                            video_opts = download_opts.copy()
+                            video_opts['format'] = 'bestvideo/best'
+                            video_opts['postprocessor_args'] = []
+                            
+                            try:
+                                with yt_dlp.YoutubeDL(video_opts) as ydl:
+                                    ydl.download([self.url])
+                                
+                                # 檢查下載目錄中的新檔案
+                                after_files = set(glob.glob(os.path.join(self.output_path, "*")))
+                                new_files = list(after_files - before_files)
+                                
+                                # 顯示所有新檔案
+                                if new_files:
+                                    self.progress.emit("<span style=\"color: blue;\">ℹ️ 找到新下載的檔案：</span>")
+                                    for f in new_files:
+                                        file_size = os.path.getsize(f) / (1024 * 1024)  # 轉換為 MB
+                                        self.progress.emit(f"<span style=\"color: blue;\">- {os.path.basename(f)} ({file_size:.1f} MB)</span>")
+                                
+                                # 找出最大的檔案（可能是高畫質視頻）
+                                best_file = max(new_files, key=os.path.getsize)
+                                best_filename = os.path.basename(best_file)
+                                best_filesize = os.path.getsize(best_file) / (1024 * 1024)
+                                
+                                self.progress.emit(f"<span style=\"color: green;\">✅ 成功下載高畫質視頻: {best_filename} ({best_filesize:.1f} MB)</span>")
+                                self.finished.emit(True, f"下載完成！保留高畫質視頻檔案: {best_filename}")
+                                return
+                            except Exception as e2:
+                                self.progress.emit(f"<span style=\"color: red;\">❌ 高畫質視頻下載失敗: {str(e2)}</span>")
+                            
+                            # 檢查下載目錄中的新檔案
+                            after_files = set(glob.glob(os.path.join(self.output_path, "*")))
+                            new_files = list(after_files - before_files)
+                            
+                            # 顯示所有新檔案
+                            if new_files:
+                                self.progress.emit("<span style=\"color: blue;\">ℹ️ 找到新下載的檔案：</span>")
+                                for f in new_files:
+                                    file_size = os.path.getsize(f) / (1024 * 1024)  # 轉換為 MB
+                                    self.progress.emit(f"<span style=\"color: blue;\">- {os.path.basename(f)} ({file_size:.1f} MB)</span>")
+                            
+                            # 找到與影片標題相關的檔案
+                            video_files = []
+                            audio_files = []
+                            
+                            for f in new_files:
+                                basename = os.path.basename(f).lower()
+                                # 判斷是視頻還是音頻
+                                if ("video" in basename or 
+                                    os.path.splitext(basename)[1] in ['.mp4', '.webm', '.mkv', '.avi', '.flv', '.mov']):
+                                    video_files.append(f)
+                                elif ("audio" in basename or 
+                                      os.path.splitext(basename)[1] in ['.m4a', '.mp3', '.ogg', '.wav', '.aac']):
+                                    audio_files.append(f)
+                                else:
+                                    # 如果無法判斷，根據檔案大小猜測
+                                    if os.path.getsize(f) > 5 * 1024 * 1024:  # 大於 5MB 可能是視頻
+                                        video_files.append(f)
+                                    else:
+                                        audio_files.append(f)
+                            
+                            # 顯示找到的檔案
+                            if video_files:
+                                self.progress.emit("<span style=\"color: green;\">✅ 已找到視頻檔案：</span>")
+                                for i, file in enumerate(video_files):
+                                    file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
+                                    file_name = os.path.basename(file)
+                                    self.progress.emit(f"<span style=\"color: green;\">{i+1}. {file_name} ({file_size:.1f} MB)</span>")
+                            
+                            if audio_files:
+                                self.progress.emit("<span style=\"color: blue;\">ℹ️ 已找到音頻檔案：</span>")
+                                for i, file in enumerate(audio_files):
+                                    file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
+                                    file_name = os.path.basename(file)
+                                    self.progress.emit(f"<span style=\"color: blue;\">{i+1}. {file_name} ({file_size:.1f} MB)</span>")
+                            
+                            # 如果找到視頻檔案，保留視頻檔案並刪除音頻檔案
+                            if video_files:
+                                # 找出最大的視頻檔案（可能是最高畫質）
+                                best_video = max(video_files, key=os.path.getsize)
+                                best_video_name = os.path.basename(best_video)
+                                best_video_size = os.path.getsize(best_video) / (1024 * 1024)
+                                
+                                self.progress.emit(f"<span style=\"color: green;\">✅ 保留最高畫質視頻檔案: {best_video_name} ({best_video_size:.1f} MB)</span>")
+                                
+                                # 刪除其他視頻檔案
+                                for file in video_files:
+                                    if file != best_video:
+                                        try:
+                                            os.remove(file)
+                                            self.progress.emit(f"<span style=\"color: orange;\">🗑️ 已刪除多餘視頻檔案: {os.path.basename(file)}</span>")
+                                        except:
+                                            pass
+                                
+                                # 刪除所有音頻檔案
+                                for file in audio_files:
+                                    try:
+                                        os.remove(file)
+                                        self.progress.emit(f"<span style=\"color: orange;\">🗑️ 已刪除音頻檔案: {os.path.basename(file)}</span>")
+                                    except:
+                                        pass
+                                
+                                # 返回成功訊息
+                                self.finished.emit(True, f"下載完成！保留高畫質視頻檔案: {best_video_name}")
+                                return
+                            else:
+                                # 如果找不到視頻檔案，但有音頻檔案，保留最大的音頻檔案
+                                if audio_files:
+                                    best_audio = max(audio_files, key=os.path.getsize)
+                                    best_audio_name = os.path.basename(best_audio)
+                                    best_audio_size = os.path.getsize(best_audio) / (1024 * 1024)
+                                    
+                                    self.progress.emit(f"<span style=\"color: blue;\">ℹ️ 只找到音頻檔案，保留最高品質音頻: {best_audio_name} ({best_audio_size:.1f} MB)</span>")
+                                    
+                                    # 刪除其他音頻檔案
+                                    for file in audio_files:
+                                        if file != best_audio:
+                                            try:
+                                                os.remove(file)
+                                                self.progress.emit(f"<span style=\"color: orange;\">🗑️ 已刪除多餘音頻檔案: {os.path.basename(file)}</span>")
+                                            except:
+                                                pass
+                                    
+                                    # 返回成功訊息
+                                    self.finished.emit(True, f"下載完成！保留音頻檔案: {best_audio_name}")
+                                    return
+                            
+                            # 如果找不到相關檔案，繼續執行備用下載方案
+                            self.progress.emit("<span style=\"color: orange;\">⚠️ 找不到已下載的檔案，嘗試使用單一格式下載...</span>")
+                            
+                            # 使用單一格式下載
+                            download_opts['format'] = '22/18/best'  # 優先使用 YouTube 標準格式 (22=720p MP4, 18=360p MP4)
+                            download_opts.pop('postprocessor_args', None)  # 移除 FFmpeg 參數
+                            download_opts['keepvideo'] = False  # 不需要保留原始視頻
+                            
+                            try:
+                                with yt_dlp.YoutubeDL(download_opts) as ydl:
+                                    ydl.download([self.url])
+                                self.progress.emit("<span style=\"color: green;\">✅ 使用單一格式下載成功</span>")
+                                
+                                # 檢查下載目錄中的新檔案
+                                after_files = set(glob.glob(os.path.join(self.output_path, "*")))
+                                new_files = list(after_files - before_files)
+                                
+                                if new_files:
+                                    # 找到最新下載的檔案
+                                    latest_file = max(new_files, key=os.path.getmtime)
+                                    latest_filename = os.path.basename(latest_file)
+                                    file_size = os.path.getsize(latest_file) / (1024 * 1024)  # 轉換為 MB
+                                    
+                                    self.progress.emit(f"<span style=\"color: green;\">✅ 下載成功: {latest_filename} ({file_size:.1f} MB)</span>")
+                                    self.finished.emit(True, f"下載完成！檔案名稱: {latest_filename}")
+                                    return
+                                else:
+                                    self.progress.emit("<span style=\"color: orange;\">⚠️ 找不到下載的檔案，嘗試啟動備用下載...</span>")
+                                    self.finished.emit(True, "START_FALLBACK")
+                                    return
+                            except Exception as e2:
+                                self.progress.emit(f"<span style=\"color: red;\">單一格式下載失敗: {str(e2)}</span>")
+                                self.finished.emit(True, "START_FALLBACK")
+                                return
                     
                     # 檢查下載結果
                     ext = self.merge_output_format if not self.extract_audio_only else ('mp3' if self.format_choice == "僅音訊 (MP3)" else 'wav')
@@ -214,28 +566,113 @@ class DownloadThread(QThread):
                 except Exception as e:
                     self.progress.emit(f"<span style=\"color: red;\">下載失敗: {str(e)}</span>")
                     
-                    # 檢查是否是合併錯誤
-                    if "Postprocessing" in str(e) and "Could not write header" in str(e):
-                        self.progress.emit("<span style=\"color: orange;\">⚠️ 合併視頻和音頻失敗，保留所有已下載的檔案...</span>")
+                    # 檢查是否是合併錯誤或 FFmpeg 相關錯誤
+                    if "Postprocessing" in str(e) or "Could not write header" in str(e) or "ffmpeg is not installed" in str(e) or "ffmpeg" in str(e).lower():
+                        self.progress.emit("<span style=\"color: orange;\">⚠️ 合併視頻和音頻失敗，保留高畫質視頻檔案...</span>")
                         
                         # 查找已下載的檔案
-                        import glob
-                        pattern = os.path.join(self.output_path, f"{safe_title}.*")
-                        files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
+                        import glob, time
                         
-                        if files:
-                            # 找到所有下載的檔案
-                            self.progress.emit("<span style=\"color: green;\">✅ 已找到下載的檔案：</span>")
-                            for i, file in enumerate(files):
+                        # 先等待 1 秒，確保檔案寫入完成
+                        time.sleep(1)
+                        
+                        # 搜尋所有可能的檔案
+                        pattern1 = os.path.join(self.output_path, f"{safe_title}.*")
+                        pattern2 = os.path.join(self.output_path, f"*{safe_title.split(' ')[0]}*")  # 使用標題的第一個單詞
+                        
+                        files1 = [f for f in glob.glob(pattern1) if os.path.getsize(f) > 0]
+                        files2 = [f for f in glob.glob(pattern2) if os.path.getsize(f) > 0]
+                        
+                        # 合併檔案列表並去重
+                        all_files = list(set(files1 + files2))
+                        
+                        # 篩選出視頻檔案和音頻檔案
+                        video_files = []
+                        audio_files = []
+                        
+                        for file in all_files:
+                            file_ext = os.path.splitext(file)[1].lower()
+                            # 檢查檔案名稱中是否包含視頻或音頻標識
+                            if "video" in file.lower() or file_ext in ['.mp4', '.webm', '.mkv', '.avi', '.flv', '.mov']:
+                                video_files.append(file)
+                            elif "audio" in file.lower() or file_ext in ['.m4a', '.mp3', '.ogg', '.wav', '.aac']:
+                                audio_files.append(file)
+                        
+                        # 顯示找到的檔案
+                        if video_files:
+                            self.progress.emit("<span style=\"color: green;\">✅ 已找到視頻檔案：</span>")
+                            for i, file in enumerate(video_files):
                                 file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
-                                self.progress.emit(f"<span style=\"color: green;\">{i+1}. {os.path.basename(file)} ({file_size:.1f} MB)</span>")
+                                file_name = os.path.basename(file)
+                                self.progress.emit(f"<span style=\"color: green;\">{i+1}. {file_name} ({file_size:.1f} MB)</span>")
+                        
+                        if audio_files:
+                            self.progress.emit("<span style=\"color: blue;\">ℹ️ 已找到音頻檔案：</span>")
+                            for i, file in enumerate(audio_files):
+                                file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
+                                file_name = os.path.basename(file)
+                                self.progress.emit(f"<span style=\"color: blue;\">{i+1}. {file_name} ({file_size:.1f} MB)</span>")
+                        
+                        # 如果找到視頻檔案，保留視頻檔案並刪除音頻檔案
+                        if video_files:
+                            # 找出最大的視頻檔案（可能是最高畫質）
+                            best_video = max(video_files, key=os.path.getsize)
+                            best_video_name = os.path.basename(best_video)
+                            best_video_size = os.path.getsize(best_video) / (1024 * 1024)
                             
-                            # 將檔案列表傳遞給主視窗，顯示選擇對話框
-                            self.finished.emit(True, f"MULTI_FILES:{','.join(files)}")
+                            self.progress.emit(f"<span style=\"color: green;\">✅ 保留最高畫質視頻檔案: {best_video_name} ({best_video_size:.1f} MB)</span>")
+                            
+                            # 刪除其他視頻檔案
+                            for file in video_files:
+                                if file != best_video:
+                                    try:
+                                        os.remove(file)
+                                        self.progress.emit(f"<span style=\"color: orange;\">🗑️ 已刪除多餘視頻檔案: {os.path.basename(file)}</span>")
+                                    except:
+                                        pass
+                            
+                            # 刪除所有音頻檔案
+                            for file in audio_files:
+                                try:
+                                    os.remove(file)
+                                    self.progress.emit(f"<span style=\"color: orange;\">🗑️ 已刪除音頻檔案: {os.path.basename(file)}</span>")
+                                except:
+                                    pass
+                            
+                            # 返回成功訊息
+                            self.finished.emit(True, f"下載完成！保留高畫質視頻檔案: {best_video_name}")
                             return
                         
-                        # 如果找不到已下載的檔案，嘗試使用單一格式下載
-                        self.progress.emit("<span style=\"color: orange;\">⚠️ 找不到已下載的檔案，嘗試使用單一格式下載...</span>")
+                        # 如果沒有找到視頻檔案，嘗試單一格式下載
+                        self.progress.emit("<span style=\"color: orange;\">⚠️ 未找到可用的視頻檔案，嘗試使用單一格式下載...</span>")
+                        
+                        # 使用單一格式下載
+                        download_opts['format'] = '22/18/best'  # 優先使用 YouTube 標準格式 (22=720p MP4, 18=360p MP4)
+                        download_opts.pop('postprocessor_args', None)  # 移除 FFmpeg 參數
+                        download_opts['keepvideo'] = False  # 不需要保留原始視頻
+                        
+                        try:
+                            with yt_dlp.YoutubeDL(download_opts) as ydl:
+                                ydl.download([self.url])
+                            self.progress.emit("<span style=\"color: green;\">✅ 使用單一格式下載成功</span>")
+                            
+                            # 查找下載的檔案
+                            import glob
+                            pattern = os.path.join(self.output_path, f"{safe_title}.*")
+                            files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
+                            
+                            if files:
+                                actual_filename = os.path.basename(files[0])
+                                self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
+                                return
+                            else:
+                                self.progress.emit("<span style=\"color: orange;\">⚠️ 找不到下載的檔案，嘗試啟動備用下載...</span>")
+                                self.finished.emit(True, "START_FALLBACK")
+                                return
+                        except Exception as e2:
+                            self.progress.emit(f"<span style=\"color: red;\">單一格式下載失敗: {str(e2)}</span>")
+                            self.finished.emit(True, "START_FALLBACK")
+                            return
                     
                     # 嘗試使用單一高解析度格式
                     self.progress.emit("<span style=\"color: orange;\">⚠️ 嘗試使用高解析度單一格式...</span>")
@@ -283,11 +720,32 @@ class DownloadThread(QThread):
                         self.progress.emit(f"<span style=\"color: red;\">所有備用格式都失敗: {str(e3)}</span>")
                         self.finished.emit(False, f"下載失敗: {str(e)}。建議升級 yt-dlp 或用 cookies。")
         except Exception as e:
+            # 檢查是否有 FFmpeg 相關錯誤
+            if "ffmpeg" in str(e).lower() or "ffmpeg is not installed" in str(e):
+                self.progress.emit("<span style=\"color: orange;\">⚠️ 檢測到 FFmpeg 相關錯誤，檢查是否有部分下載的檔案...</span>")
+                
+                # 檢查下載目錄中是否有新檔案
+                import glob
+                pattern = os.path.join(self.output_path, f"{safe_title}.*")
+                files = [f for f in glob.glob(pattern) if os.path.getsize(f) > 0]
+                
+                if files:
+                    # 找到部分下載的檔案
+                    self.progress.emit("<span style=\"color: green;\">✅ 找到部分下載的檔案：</span>")
+                    for file in files:
+                        file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
+                        self.progress.emit(f"<span style=\"color: green;\">- {os.path.basename(file)} ({file_size:.1f} MB)</span>")
+                    
+                    # 將檔案列表傳遞給主視窗，顯示選擇對話框
+                    self.finished.emit(True, f"MULTI_FILES:{','.join(files)}")
+                    return
+            
             # 年齡限制自動提示
-            if 'Sign in to confirm your age' in str(e) or 'Use --cookies-from-browser or --cookies' in str(e):
+            elif 'Sign in to confirm your age' in str(e) or 'Use --cookies-from-browser or --cookies' in str(e):
                 self.progress.emit("<span style=\"color: orange;\">❗ 此影片有年齡限制，請先登入 YouTube 並匯出 cookies.txt，再於下載選項中選擇 cookies 檔案！</span>")
                 from PySide6.QtWidgets import QMessageBox
                 QMessageBox.warning(None, "需要 cookies 驗證", "此影片有年齡限制，請先登入 YouTube 並匯出 cookies.txt，再於下載選項中選擇 cookies 檔案！\n\n詳見 https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp")
+            
             self.progress.emit(f"<span style=\"color: red;\">主要方法失敗: {str(e)}</span>")
             self.finished.emit(False, f"下載失敗: {str(e)}。建議升級 yt-dlp 或用 cookies。")
     
@@ -363,6 +821,26 @@ class DownloadThread(QThread):
     
     def progress_hook(self, d):
         if d['status'] == 'downloading':
+            # 顯示當前下載的檔案類型（視頻或音頻）
+            filename = d.get('filename', '')
+            if filename:
+                # 判斷是視頻還是音頻
+                file_type = ""
+                if "video" in filename.lower():
+                    file_type = "[視頻] "
+                elif "audio" in filename.lower():
+                    file_type = "[音頻] "
+                
+                # 提取檔案名稱（不含路徑）
+                basename = os.path.basename(filename)
+                
+                # 只在第一次顯示檔案名稱
+                if not hasattr(self, '_shown_files') or basename not in self._shown_files:
+                    if not hasattr(self, '_shown_files'):
+                        self._shown_files = set()
+                    self._shown_files.add(basename)
+                    self.progress.emit(f"{file_type}正在下載: {basename}")
+            
             if 'total_bytes' in d and d['total_bytes']:
                 percent = (d['downloaded_bytes'] / d['total_bytes']) * 100
                 speed = d.get('speed', 0)
@@ -374,7 +852,18 @@ class DownloadThread(QThread):
             else:
                 self.progress.emit("下載中...")
         elif d['status'] == 'finished':
-            self.progress.emit("檔案下載完成，正在處理...")
+            filename = d.get('filename', '')
+            if filename:
+                basename = os.path.basename(filename)
+                # 判斷是視頻還是音頻
+                file_type = ""
+                if "video" in filename.lower():
+                    file_type = "[視頻] "
+                elif "audio" in filename.lower():
+                    file_type = "[音頻] "
+                self.progress.emit(f"{file_type}檔案下載完成: {basename}")
+            else:
+                self.progress.emit("檔案下載完成，正在處理...")
     
     def sanitize_filename(self, filename):
         # 廢棄，統一用 safe_filename
@@ -387,14 +876,17 @@ class MainWindow(QMainWindow):
         # 設定視窗標題和大小
         self.setWindowTitle("YouTube 下載器")
         
-        # 檢查 FFmpeg
-        self.ffmpeg_path = find_ffmpeg_executable()
+        # 初始化 ffmpeg_path 屬性
+        self.ffmpeg_path = None
         
         # 載入用戶偏好設定
         self.preferences = UserPreferences()
         
         # 設定視窗大小和位置
         self.setup_window_geometry()
+        
+        # 檢查和設置 FFmpeg (在初始化 UI 之前)
+        self.setup_ffmpeg()
         
         # 初始化 UI 元件
         self.init_ui()
@@ -408,21 +900,195 @@ class MainWindow(QMainWindow):
         # 初始化下載線程
         self.download_thread = None
         
-        # 檢查 FFmpeg 並顯示狀態
-        if self.ffmpeg_path:
-            self.update_progress(f"<span style=\"color: green;\">✓ FFmpeg 已找到: {self.ffmpeg_path}</span>")
-        else:
-            self.update_progress("<span style=\"color: orange;\">⚠️ 警告: 未找到 FFmpeg，某些格式可能無法下載。請安裝 FFmpeg 並確保它在系統路徑中。</span>")
-            QMessageBox.warning(self, "FFmpeg 未找到", 
-                              "未找到 FFmpeg，某些格式可能無法下載。\n\n"
-                              "請安裝 FFmpeg 並確保它在系統路徑中:\n"
-                              "1. 訪問 https://ffmpeg.org/download.html\n"
-                              "2. 下載適合您系統的版本\n"
-                              "3. 解壓縮並將 bin 目錄添加到系統 PATH 環境變數\n"
-                              "4. 重新啟動應用程式")
-        
         # 顯示版本資訊
         self.show_version_info()
+    
+    def setup_ffmpeg(self):
+        """檢查並設置 FFmpeg"""
+        # 初始化一個標誌，用於記錄 FFmpeg 狀態
+        self.ffmpeg_status_message = ""
+        
+        # 先檢查是否已下載 FFmpeg
+        if is_ffmpeg_downloaded():
+            self.ffmpeg_path = get_ffmpeg_path()
+            is_working, output = test_ffmpeg(self.ffmpeg_path)
+            if is_working:
+                self.ffmpeg_status_message = f"<span style=\"color: green;\">✓ FFmpeg 已找到並可用: {self.ffmpeg_path}</span>"
+                return
+        
+        # 檢查系統中是否有 FFmpeg
+        self.ffmpeg_path = find_ffmpeg_executable()
+        
+        if self.ffmpeg_path:
+            # 驗證 FFmpeg 是否真的可用
+            try:
+                result = subprocess.run([self.ffmpeg_path, '-version'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    self.ffmpeg_status_message = f"<span style=\"color: green;\">✓ FFmpeg 已找到並可用: {self.ffmpeg_path}</span>"
+                    return
+                else:
+                    self.ffmpeg_path = None
+            except Exception:
+                self.ffmpeg_path = None
+        
+        # 如果沒有找到可用的 FFmpeg，記錄狀態
+        self.ffmpeg_status_message = "<span style=\"color: orange;\">⚠️ 未找到可用的 FFmpeg，請使用自動下載按鈕</span>"
+    
+    def show_ffmpeg_help_dialog(self):
+        """顯示 FFmpeg 安裝幫助對話框"""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextBrowser
+        from PySide6.QtCore import Qt
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("FFmpeg 安裝幫助")
+        dialog.setMinimumSize(600, 400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 標題
+        title_label = QLabel("安裝 FFmpeg 以解決合併失敗問題")
+        title_label.setStyleSheet("font-size: 16pt; font-weight: bold; color: #2196F3;")
+        layout.addWidget(title_label)
+        
+        # 說明文字
+        help_text = QTextBrowser()
+        help_text.setOpenExternalLinks(True)
+        help_text.setHtml("""
+        <h3>為什麼需要 FFmpeg?</h3>
+        <p>FFmpeg 是用於處理音頻和視頻的強大工具。YouTube 下載器需要它來合併高品質的視頻和音頻流。</p>
+        <p>如果沒有安裝 FFmpeg，您將只能下載較低品質的單一格式視頻，或者可能會遇到「合併失敗」的錯誤。</p>
+        
+        <h3>自動下載 FFmpeg:</h3>
+        <p>您可以點擊下方的「自動下載 FFmpeg」按鈕，程式將自動下載並設置 FFmpeg。</p>
+        <p><b>注意:</b> 自動下載的 FFmpeg 將存放在程式目錄下的 ffmpeg_bin 資料夾中，不會影響系統設置。</p>
+        
+        <h3>手動安裝 FFmpeg:</h3>
+        
+        <h4>Windows:</h4>
+        <ol>
+            <li>訪問 <a href="https://ffmpeg.org/download.html">FFmpeg 官方網站</a> 或 <a href="https://github.com/BtbN/FFmpeg-Builds/releases">GitHub 發布頁面</a></li>
+            <li>下載 Windows 版本 (選擇 "ffmpeg-git-full.7z" 檔案)</li>
+            <li>解壓縮檔案</li>
+            <li>將解壓縮後的 bin 資料夾路徑 (例如 C:\\ffmpeg\\bin) 添加到系統環境變數 PATH 中</li>
+            <li>重新啟動電腦</li>
+        </ol>
+        
+        <h4>macOS:</h4>
+        <ol>
+            <li>安裝 <a href="https://brew.sh/">Homebrew</a> (如果尚未安裝)</li>
+            <li>打開終端機</li>
+            <li>執行指令: <code>brew install ffmpeg</code></li>
+        </ol>
+        
+        <h4>Linux:</h4>
+        <ol>
+            <li>Ubuntu/Debian: <code>sudo apt update && sudo apt install ffmpeg</code></li>
+            <li>Fedora: <code>sudo dnf install ffmpeg</code></li>
+            <li>Arch Linux: <code>sudo pacman -S ffmpeg</code></li>
+        </ol>
+        
+        <h3>安裝後:</h3>
+        <p>安裝完成後，請重新啟動此應用程式。應用程式將自動偵測 FFmpeg 並使用它來提供更高品質的下載。</p>
+        """)
+        layout.addWidget(help_text)
+        
+        # 按鈕
+        button_layout = QHBoxLayout()
+        
+        # 自動下載按鈕
+        auto_download_button = QPushButton("自動下載 FFmpeg")
+        auto_download_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        auto_download_button.clicked.connect(lambda: self.auto_download_ffmpeg_from_dialog(dialog))
+        button_layout.addWidget(auto_download_button)
+        
+        button_layout.addStretch()
+        
+        close_button = QPushButton("關閉")
+        close_button.clicked.connect(dialog.accept)
+        button_layout.addWidget(close_button)
+        layout.addLayout(button_layout)
+        
+        dialog.exec()
+    
+    def auto_download_ffmpeg_from_dialog(self, parent_dialog=None):
+        """從對話框中自動下載 FFmpeg"""
+        # 關閉幫助對話框
+        if parent_dialog:
+            parent_dialog.accept()
+        
+        # 顯示下載進度對話框
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton
+        from PySide6.QtCore import Qt
+        
+        download_dialog = QDialog(self)
+        download_dialog.setWindowTitle("下載 FFmpeg")
+        download_dialog.setFixedSize(400, 150)
+        download_dialog.setWindowFlags(download_dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+        
+        layout = QVBoxLayout(download_dialog)
+        
+        status_label = QLabel("準備下載 FFmpeg...")
+        layout.addWidget(status_label)
+        
+        progress_bar = QProgressBar()
+        progress_bar.setRange(0, 0)  # 不確定進度
+        layout.addWidget(progress_bar)
+        
+        cancel_button = QPushButton("取消")
+        cancel_button.clicked.connect(download_dialog.reject)
+        layout.addWidget(cancel_button)
+        
+        # 顯示對話框
+        download_dialog.show()
+        
+        # 更新下載進度的回調函數
+        def update_download_status(message):
+            status_label.setText(message)
+            self.update_progress(f"<span style=\"color: blue;\">{message}</span>")
+        
+        # 在背景線程中下載 FFmpeg
+        def download_thread_func():
+            try:
+                ffmpeg_path = download_ffmpeg(update_download_status)
+                
+                # 下載完成後關閉對話框
+                download_dialog.accept()
+                
+                if ffmpeg_path and os.path.exists(ffmpeg_path):
+                    self.ffmpeg_path = ffmpeg_path
+                    is_working, _ = test_ffmpeg(ffmpeg_path)
+                    if is_working:
+                        self.update_progress(f"<span style=\"color: green;\">✓ FFmpeg 已成功下載並可用: {ffmpeg_path}</span>")
+                        
+                        # 更新 UI 上的 FFmpeg 狀態
+                        if hasattr(self, 'ffmpeg_status_label'):
+                            self.ffmpeg_status_label.setText("✅ FFmpeg 已安裝")
+                            self.ffmpeg_status_label.setStyleSheet("font-size: 12px; color: green; margin: 5px;")
+                        
+                        # 顯示成功訊息
+                        from PySide6.QtWidgets import QMessageBox
+                        QMessageBox.information(self, "FFmpeg 安裝成功", 
+                                             "FFmpeg 已成功下載並設置完成！\n現在您可以下載並合併高品質影片了。")
+                    else:
+                        self.update_progress("<span style=\"color: red;\">❌ 下載的 FFmpeg 無法正常工作</span>")
+                        from PySide6.QtWidgets import QMessageBox
+                        QMessageBox.warning(self, "FFmpeg 安裝失敗", 
+                                         "下載的 FFmpeg 無法正常工作，請嘗試手動安裝。")
+                else:
+                    self.update_progress("<span style=\"color: red;\">❌ FFmpeg 下載失敗</span>")
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.warning(self, "FFmpeg 下載失敗", 
+                                     "無法下載 FFmpeg，請檢查網絡連接或嘗試手動安裝。")
+            except Exception as e:
+                self.update_progress(f"<span style=\"color: red;\">❌ FFmpeg 下載過程中出錯: {str(e)}</span>")
+                download_dialog.reject()
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "FFmpeg 下載錯誤", 
+                                 f"下載 FFmpeg 時出錯: {str(e)}\n請嘗試手動安裝。")
+        
+        # 啟動下載線程
+        threading.Thread(target=download_thread_func, daemon=True).start()
     
     def init_ui(self):
         # --- 新增 QSplitter ---
@@ -470,6 +1136,41 @@ class MainWindow(QMainWindow):
         version_label.setAlignment(Qt.AlignRight)
         version_label.setStyleSheet("font-size: 12px; color: #888; margin: 5px;")
         left_layout.addWidget(version_label)
+        
+        # FFmpeg 狀態提示
+        self.ffmpeg_status_label = QLabel()
+        self.ffmpeg_status_label.setAlignment(Qt.AlignCenter)
+        
+        ffmpeg_layout = QHBoxLayout()
+        
+        if self.ffmpeg_path:
+            self.ffmpeg_status_label.setText("✅ FFmpeg 已安裝")
+            self.ffmpeg_status_label.setStyleSheet("font-size: 12px; color: green; margin: 5px;")
+            ffmpeg_layout.addWidget(self.ffmpeg_status_label)
+            
+            # 即使已安裝，也提供重新下載選項
+            self.ffmpeg_download_button = QPushButton("重新下載")
+            self.ffmpeg_download_button.setStyleSheet("font-size: 10px; padding: 2px 5px; background-color: #4CAF50; color: white;")
+            self.ffmpeg_download_button.clicked.connect(self.auto_download_ffmpeg_from_dialog)
+            ffmpeg_layout.addWidget(self.ffmpeg_download_button)
+        else:
+            self.ffmpeg_status_label.setText("⚠️ 未找到 FFmpeg")
+            self.ffmpeg_status_label.setStyleSheet("font-size: 12px; color: orange; font-weight: bold; margin: 5px;")
+            ffmpeg_layout.addWidget(self.ffmpeg_status_label)
+            
+            # 添加 FFmpeg 自動下載按鈕
+            self.ffmpeg_download_button = QPushButton("自動下載")
+            self.ffmpeg_download_button.setStyleSheet("font-size: 10px; padding: 2px 5px; background-color: #4CAF50; color: white;")
+            self.ffmpeg_download_button.clicked.connect(self.auto_download_ffmpeg_from_dialog)
+            ffmpeg_layout.addWidget(self.ffmpeg_download_button)
+            
+            # 添加 FFmpeg 安裝幫助按鈕
+            self.ffmpeg_help_button = QPushButton("安裝幫助")
+            self.ffmpeg_help_button.setStyleSheet("font-size: 10px; padding: 2px 5px; background-color: #2196F3; color: white;")
+            self.ffmpeg_help_button.clicked.connect(self.show_ffmpeg_help_dialog)
+            ffmpeg_layout.addWidget(self.ffmpeg_help_button)
+        
+        left_layout.addLayout(ffmpeg_layout)
         
         # URL 輸入區域
         url_group = QGroupBox("影片資訊")
@@ -707,6 +1408,19 @@ class MainWindow(QMainWindow):
         # 顯示下載完成提醒設置狀態
         show_dialog = self.preferences.get_show_completion_dialog()
         self.log_output.append(f"{'✅' if show_dialog else '❌'} 下載完成提醒已{'開啟' if show_dialog else '關閉'}")
+        
+        # 顯示 FFmpeg 狀態訊息
+        if hasattr(self, 'ffmpeg_status_message') and self.ffmpeg_status_message:
+            self.log_output.append(self.ffmpeg_status_message)
+            
+        # 顯示所有待處理的訊息
+        if hasattr(self, 'pending_messages') and self.pending_messages:
+            for message in self.pending_messages:
+                if any(error_keyword in message for error_keyword in ["失敗", "錯誤", "ERROR", "error", "failed", "❌", "合併視頻和音頻失敗"]):
+                    self.log_output.append(f'<span style="color: red;">{message}</span>')
+                else:
+                    self.log_output.append(message)
+            self.pending_messages = []
     
     def setup_window_geometry(self):
         """設定視窗位置和大小"""
@@ -1037,6 +1751,14 @@ class MainWindow(QMainWindow):
     
     def update_progress(self, message):
         """更新進度"""
+        # 檢查 log_output 是否已初始化
+        if not hasattr(self, 'log_output') or not self.log_output:
+            # 如果尚未初始化，將訊息保存到狀態訊息中
+            if not hasattr(self, 'pending_messages'):
+                self.pending_messages = []
+            self.pending_messages.append(message)
+            return
+            
         # 檢查是否為錯誤訊息，使用紅色顯示
         if any(error_keyword in message for error_keyword in ["失敗", "錯誤", "ERROR", "error", "failed", "❌", "合併視頻和音頻失敗"]):
             self.log_output.append(f'<span style="color: red;">{message}</span>')
@@ -1063,6 +1785,22 @@ class MainWindow(QMainWindow):
         if success and message.startswith("MULTI_FILES:"):
             files = message.replace("MULTI_FILES:", "").split(",")
             self.show_file_selection_dialog(files)
+            return
+            
+        # 處理直接開始備用下載的情況
+        if success and message == "START_FALLBACK":
+            self.update_progress("<span style=\"color: blue;\">ℹ️ 直接開始下載備用版本...</span>")
+            self.start_fallback_download()
+            return
+        
+        # 處理保留高畫質視頻檔案的情況
+        if success and message.startswith("下載完成！保留高畫質視頻檔案:"):
+            filename = message.replace("下載完成！保留高畫質視頻檔案:", "").strip()
+            self.update_progress(f"<span style=\"color: green;\">✅ {message}</span>")
+            
+            # 顯示完成對話框
+            if self.show_completion_dialog.isChecked():
+                self.show_completion_dialog_with_options(self.path_input.text(), filename)
             return
         
         # 顯示結果
@@ -1145,44 +1883,65 @@ class MainWindow(QMainWindow):
     
     def handle_file_selection(self, files, selected_index, dialog):
         """處理檔案選擇結果"""
-        dialog.accept()
-        
-        if selected_index is None:
-            # 全部保留
-            self.update_progress("<span style=\"color: green;\">✅ 已保留所有檔案</span>")
+        try:
+            dialog.accept()
             
-            # 顯示檔案列表
-            for file in files:
-                file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
-                self.update_progress(f"<span style=\"color: green;\">- {os.path.basename(file)} ({file_size:.1f} MB)</span>")
-            
-            # 找到最大的檔案作為主要結果
-            largest_file = max(files, key=os.path.getsize)
-            filename = os.path.basename(largest_file)
-            
-            # 顯示完成對話框
-            if self.show_completion_dialog.isChecked():
-                self.show_completion_dialog_with_options(self.path_input.text(), filename)
-        
-        elif 0 <= selected_index < len(files):
-            # 保留選擇的檔案
-            selected_file = files[selected_index]
-            filename = os.path.basename(selected_file)
-            
-            self.update_progress(f"<span style=\"color: green;\">✅ 已保留檔案：{filename}</span>")
-            
-            # 刪除其他檔案
-            for file in files:
-                if file != selected_file:
+            if selected_index is None:
+                # 全部保留
+                self.update_progress("<span style=\"color: green;\">✅ 已保留所有檔案</span>")
+                
+                # 顯示檔案列表
+                for file in files:
                     try:
-                        os.remove(file)
-                        self.update_progress(f"<span style=\"color: orange;\">🗑️ 已刪除：{os.path.basename(file)}</span>")
+                        file_size = os.path.getsize(file) / (1024 * 1024)  # 轉換為 MB
+                        self.update_progress(f"<span style=\"color: green;\">- {os.path.basename(file)} ({file_size:.1f} MB)</span>")
                     except:
-                        self.update_progress(f"<span style=\"color: red;\">❌ 無法刪除：{os.path.basename(file)}</span>")
+                        self.update_progress(f"<span style=\"color: orange;\">- {os.path.basename(file)} (無法獲取大小)</span>")
+                
+                try:
+                    # 找到最大的檔案作為主要結果
+                    largest_file = max(files, key=lambda f: os.path.getsize(f) if os.path.exists(f) else 0)
+                    filename = os.path.basename(largest_file)
+                except:
+                    filename = os.path.basename(files[0]) if files else "未知檔案"
+                
+                # 同時開始下載較低解析度的完整版本
+                try:
+                    self.start_fallback_download()
+                except Exception as e:
+                    self.update_progress(f"<span style=\"color: red;\">❌ 啟動備用下載失敗: {str(e)}</span>")
+                
+                # 顯示完成對話框
+                if self.show_completion_dialog.isChecked():
+                    self.show_completion_dialog_with_options(self.path_input.text(), filename)
             
-            # 顯示完成對話框
-            if self.show_completion_dialog.isChecked():
-                self.show_completion_dialog_with_options(self.path_input.text(), filename)
+            elif 0 <= selected_index < len(files):
+                # 保留選擇的檔案
+                selected_file = files[selected_index]
+                filename = os.path.basename(selected_file)
+                
+                self.update_progress(f"<span style=\"color: green;\">✅ 已保留檔案：{filename}</span>")
+                
+                # 刪除其他檔案
+                for file in files:
+                    if file != selected_file:
+                        try:
+                            os.remove(file)
+                            self.update_progress(f"<span style=\"color: orange;\">🗑️ 已刪除：{os.path.basename(file)}</span>")
+                        except:
+                            self.update_progress(f"<span style=\"color: red;\">❌ 無法刪除：{os.path.basename(file)}</span>")
+                
+                # 同時開始下載較低解析度的完整版本
+                try:
+                    self.start_fallback_download()
+                except Exception as e:
+                    self.update_progress(f"<span style=\"color: red;\">❌ 啟動備用下載失敗: {str(e)}</span>")
+                
+                # 顯示完成對話框
+                if self.show_completion_dialog.isChecked():
+                    self.show_completion_dialog_with_options(self.path_input.text(), filename)
+        except Exception as e:
+            self.update_progress(f"<span style=\"color: red;\">❌ 處理檔案選擇時出錯: {str(e)}</span>")
     
     def closeEvent(self, event: QCloseEvent):
         """關閉視窗時儲存設定"""
@@ -1689,5 +2448,83 @@ class MainWindow(QMainWindow):
         # 啟動更新線程
         import threading
         threading.Thread(target=update_thread).start()
+    
+    def start_fallback_download(self):
+        """開始下載較低解析度的備用影片"""
+        try:
+            url = self.url_input.text().strip()
+            if not url:
+                self.update_progress("<span style=\"color: red;\">❌ 無法開始備用下載：URL 為空</span>")
+                return
+            
+            # 創建一個備用檔名前綴
+            original_prefix = self.filename_prefix.text().strip()
+            fallback_prefix = original_prefix + "備用_" if original_prefix else "備用_"
+            
+            # 使用較低解析度
+            output_path = self.path_input.text().strip()
+            format_choice = self.get_format_choice()
+            resolution_choice = "480P"  # 使用 480P 作為備用解析度
+            extract_audio_only = False
+            cookies_path = self.cookies_input.text().strip()
+            
+            # 使用單一格式下載，避免需要合併
+            # 使用更可靠的格式選項，優先選擇已合併的格式
+            format_string = '22/18/best'  # 22=720p MP4, 18=360p MP4
+            merge_output_format = 'mp4'
+            
+            self.update_progress("<span style=\"color: blue;\">ℹ️ 開始下載備用版本 (單一格式)...</span>")
+            self.fallback_info_label.setText("⚠️ 正在下載備用版本 (單一格式)...")
+            self.fallback_info_label.setVisible(True)
+            
+            # 使用延遲啟動，避免與主下載線程競爭
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(2000, lambda: self._start_delayed_fallback_download(url, output_path, format_choice, resolution_choice, extract_audio_only, fallback_prefix, format_string, merge_output_format, cookies_path))
+        except Exception as e:
+            self.update_progress(f"<span style=\"color: red;\">❌ 備用下載初始化失敗: {str(e)}</span>")
+    
+    def _start_delayed_fallback_download(self, url, output_path, format_choice, resolution_choice, extract_audio_only, fallback_prefix, format_string, merge_output_format, cookies_path):
+        """延遲啟動備用下載，避免與主下載線程競爭"""
+        try:
+            if not url:
+                return
+                
+            # 創建新的下載線程
+            self.fallback_thread = DownloadThread(
+                url,
+                output_path,
+                format_choice,
+                resolution_choice,
+                extract_audio_only,
+                fallback_prefix,
+                format_string,
+                merge_output_format,
+                False,
+                cookies_path
+            )
+            
+            # 連接信號
+            self.fallback_thread.progress.connect(self.update_fallback_progress)
+            self.fallback_thread.finished.connect(self.fallback_download_finished)
+            
+            # 開始下載
+            self.fallback_thread.start()
+        except Exception as e:
+            self.update_progress(f"<span style=\"color: red;\">❌ 備用下載啟動失敗: {str(e)}</span>")
+    
+    def update_fallback_progress(self, message):
+        """更新備用下載進度"""
+        self.update_progress(f"<span style=\"color: blue;\">[備用] {message}</span>")
+    
+    def fallback_download_finished(self, success, message):
+        """備用下載完成時的處理"""
+        if success:
+            self.update_progress(f"<span style=\"color: green;\">[備用] ✅ {message}</span>")
+            self.fallback_info_label.setText("✅ 備用 720P 版本下載完成")
+        else:
+            self.update_progress(f"<span style=\"color: orange;\">[備用] ⚠️ {message}</span>")
+            self.fallback_info_label.setText("⚠️ 備用版本下載失敗")
+        
+        # 不顯示完成對話框，因為主下載已經顯示了
     
  
