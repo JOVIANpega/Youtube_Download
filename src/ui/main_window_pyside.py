@@ -222,6 +222,42 @@ class DownloadThread(QThread):
         self.formats = []
         self.format_id_map = {}
     
+    def cleanup_fragment_files(self, base_filename):
+        """清理下載過程中產生的碎片文件"""
+        import glob
+        import os
+        
+        # 查找所有可能的碎片文件
+        pattern = os.path.join(self.output_path, f"{base_filename}.*")
+        all_files = glob.glob(pattern)
+        
+        # 找出主要文件（通常是最大的文件）
+        main_file = None
+        main_size = 0
+        for f in all_files:
+            try:
+                size = os.path.getsize(f)
+                if size > main_size:
+                    main_size = size
+                    main_file = f
+            except:
+                pass
+        
+        if not main_file:
+            return
+        
+        # 刪除所有碎片文件，保留主文件
+        for f in all_files:
+            if f != main_file:
+                # 檢查文件名是否包含碎片標識
+                basename = os.path.basename(f)
+                if any(marker in basename for marker in ['.f', '.part', '.temp', '.tmp', '.webm', '.m4a']) or '.part' in basename:
+                    try:
+                        os.remove(f)
+                        self.progress.emit(f"<span style=\"color: orange;\">🗑️ 已刪除碎片檔案: {os.path.basename(f)}</span>")
+                    except:
+                        pass
+    
     def run(self):
         try:
             self.progress.emit("正在獲取影片資訊...")
@@ -332,7 +368,7 @@ class DownloadThread(QThread):
                             download_opts['format'] = 'best'
                             self.progress.emit("使用預設最佳解析度 (單一格式)")
                     
-                    # 設置合併格式，優先使用 mp4
+                                    # 設置合併格式，優先使用 mp4
                     download_opts['merge_output_format'] = self.merge_output_format
                     
                     # 添加更穩定的 FFmpeg 參數
@@ -341,8 +377,14 @@ class DownloadThread(QThread):
                             '-c:v', 'copy',
                             '-c:a', 'aac',  # 使用 AAC 音頻編碼，更兼容
                             '-strict', 'experimental',
-                            '-movflags', '+faststart'  # 優化 MP4 檔案結構
+                            '-movflags', '+faststart',  # 優化 MP4 檔案結構
+                            '-max_muxing_queue_size', '9999'  # 增加隊列大小，避免合併錯誤
                         ]
+                        
+                        # 設置更多選項以提高穩定性
+                        download_opts['external_downloader_args'] = {
+                            'ffmpeg': ['-hide_banner', '-loglevel', 'warning']
+                        }
                     
                     # 禁用部分後處理，以便在合併失敗時保留原始檔案
                     download_opts['keepvideo'] = True  # 保留原始視頻檔案
@@ -475,6 +517,9 @@ class DownloadThread(QThread):
                                     except:
                                         pass
                                 
+                                # 清理可能的碎片文件
+                                self.cleanup_fragment_files(safe_title)
+                                
                                 # 返回成功訊息
                                 self.finished.emit(True, f"下載完成！保留高畫質視頻檔案: {best_video_name}")
                                 return
@@ -541,6 +586,8 @@ class DownloadThread(QThread):
                     final_path = os.path.join(self.output_path, final_filename)
                     
                     if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
+                        # 找出並刪除所有碎片文件
+                        self.cleanup_fragment_files(safe_title)
                         self.finished.emit(True, f"下載完成！檔案名稱: {final_filename}")
                     else:
                         # 如果沒有找到預期的檔案，嘗試查找任何新下載的檔案
@@ -557,7 +604,19 @@ class DownloadThread(QThread):
                                 files = sorted(recent_files, key=os.path.getmtime, reverse=True)
                         
                         if files:
-                            actual_filename = os.path.basename(files[0])
+                            # 找出最大的文件（可能是完整的影片）
+                            main_file = max(files, key=os.path.getsize)
+                            actual_filename = os.path.basename(main_file)
+                            
+                            # 清理其他碎片文件
+                            for f in files:
+                                if f != main_file and os.path.basename(f).startswith(safe_title):
+                                    try:
+                                        os.remove(f)
+                                        self.progress.emit(f"<span style=\"color: orange;\">🗑️ 已刪除碎片檔案: {os.path.basename(f)}</span>")
+                                    except:
+                                        pass
+                            
                             self.progress.emit(f"<span style=\"color: green;\">✅ 已下載檔案：{actual_filename}</span>")
                             self.finished.emit(True, f"下載完成！檔案名稱: {actual_filename}")
                         else:
@@ -885,6 +944,13 @@ class MainWindow(QMainWindow):
         # 設定視窗大小和位置
         self.setup_window_geometry()
         
+        # 設定介面字體大小
+        self.ui_font_size = self.preferences.get("ui_font_size", 10)  # 預設字體大小為 10
+        self.apply_ui_font_size()
+        
+        # 初始化日誌去重
+        self.log_messages = set()  # 用於記錄已顯示的日誌訊息
+        
         # 檢查和設置 FFmpeg (在初始化 UI 之前)
         self.setup_ffmpeg()
         
@@ -902,6 +968,36 @@ class MainWindow(QMainWindow):
         
         # 顯示版本資訊
         self.show_version_info()
+    
+    def apply_ui_font_size(self):
+        """應用介面字體大小設定"""
+        # 設定全局樣式表，調整所有元件的字體大小
+        self.setStyleSheet(f"""
+            QLabel, QCheckBox, QRadioButton, QComboBox, QLineEdit, QGroupBox {{ font-size: {self.ui_font_size}pt; }}
+            QPushButton {{ font-size: {self.ui_font_size}pt; }}
+            QTextEdit {{ font-size: {self.ui_font_size}pt; }}
+            QToolTip {{ font-size: {self.ui_font_size}pt; }}
+            QMenuBar, QMenu {{ font-size: {self.ui_font_size}pt; }}
+            QStatusBar {{ font-size: {self.ui_font_size}pt; }}
+            QHeaderView {{ font-size: {self.ui_font_size}pt; }}
+            QTabBar {{ font-size: {self.ui_font_size}pt; }}
+        """)
+    
+    def increase_ui_font_size(self):
+        """增加介面字體大小"""
+        if self.ui_font_size < 18:  # 設置最大字體大小限制
+            self.ui_font_size += 1
+            self.preferences.set("ui_font_size", self.ui_font_size)
+            self.apply_ui_font_size()
+            self.append_log(f"介面字體大小已調整為: {self.ui_font_size}pt")
+    
+    def decrease_ui_font_size(self):
+        """減小介面字體大小"""
+        if self.ui_font_size > 8:  # 設置最小字體大小限制
+            self.ui_font_size -= 1
+            self.preferences.set("ui_font_size", self.ui_font_size)
+            self.apply_ui_font_size()
+            self.append_log(f"介面字體大小已調整為: {self.ui_font_size}pt")
     
     def setup_ffmpeg(self):
         """檢查並設置 FFmpeg"""
@@ -1190,23 +1286,34 @@ class MainWindow(QMainWindow):
         url_input_layout.addLayout(url_label_layout)
         url_input_layout.addWidget(self.url_input)
         
-        # 獲取資訊按鈕和檢查更新按鈕放在同一行
-        button_layout = QHBoxLayout()
-        
         # 獲取資訊按鈕
+        info_button_layout = QHBoxLayout()
         self.fetch_button = QPushButton("獲取資訊")
         self.fetch_button.clicked.connect(self.fetch_video_info)
         self.fetch_button.setStyleSheet("font-size: 11pt; padding: 10px; background-color: #4CAF50; color: white;")
+        info_button_layout.addStretch()
+        info_button_layout.addWidget(self.fetch_button)
+        url_input_layout.addLayout(info_button_layout)
+        
+        # 更新相關按鈕放在單獨的區域
+        update_group = QGroupBox("更新選項")
+        update_layout = QHBoxLayout(update_group)
         
         # 檢查更新按鈕
-        self.update_ytdlp_button = QPushButton("檢查更新")
-        self.update_ytdlp_button.setStyleSheet("font-size: 11pt; padding: 10px; background-color: #2196F3; color: white;")
+        self.update_ytdlp_button = QPushButton("檢查 yt-dlp 更新")
+        self.update_ytdlp_button.setStyleSheet("font-size: 11pt; padding: 8px; background-color: #2196F3; color: white;")
         self.update_ytdlp_button.clicked.connect(self.check_and_update_ytdlp)
         
-        button_layout.addStretch()
-        button_layout.addWidget(self.fetch_button)
-        button_layout.addWidget(self.update_ytdlp_button)
-        url_input_layout.addLayout(button_layout)
+        # 重新下載 yt-dlp 按鈕
+        self.reinstall_ytdlp_button = QPushButton("重新安裝 yt-dlp")
+        self.reinstall_ytdlp_button.setStyleSheet("font-size: 11pt; padding: 8px; background-color: #FF9800; color: white;")
+        self.reinstall_ytdlp_button.clicked.connect(self.reinstall_ytdlp)
+        
+        update_layout.addWidget(self.update_ytdlp_button)
+        update_layout.addWidget(self.reinstall_ytdlp_button)
+        
+        # 添加更新選項區域到 UI
+        left_layout.addWidget(update_group)
         
         url_layout.addLayout(url_input_layout)
         # 下載完成提醒設定
@@ -1230,22 +1337,12 @@ class MainWindow(QMainWindow):
         options_group = QGroupBox("下載選項")
         options_layout = QGridLayout(options_group)
         
-        # 下載類型（RadioButton）
+        # 下載類型（簡化為只有影片模式）
         type_label = QLabel("下載類型:")
-        self.radio_video = QRadioButton("影片")
-        self.radio_audio_mp3 = QRadioButton("僅音訊 (MP3)")
-        self.radio_audio_wav = QRadioButton("僅音訊 (WAV)")
-        self.radio_video.setChecked(True)
-        self.type_group = QButtonGroup()
-        self.type_group.addButton(self.radio_video)
-        self.type_group.addButton(self.radio_audio_mp3)
-        self.type_group.addButton(self.radio_audio_wav)
-        type_layout = QHBoxLayout()
-        type_layout.addWidget(self.radio_video)
-        type_layout.addWidget(self.radio_audio_mp3)
-        type_layout.addWidget(self.radio_audio_wav)
+        self.download_type_label = QLabel("影片 (最佳品質)")
+        self.download_type_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
         options_layout.addWidget(type_label, 0, 0)
-        options_layout.addLayout(type_layout, 0, 1)
+        options_layout.addWidget(self.download_type_label, 0, 1)
         
         # 解析度選擇 - 動態載入影片實際可用解析度
         resolution_label = QLabel("解析度:")
@@ -1285,33 +1382,52 @@ class MainWindow(QMainWindow):
         options_layout.addWidget(cookies_label, 3, 0)
         options_layout.addLayout(cookies_layout, 3, 1)
         
-        # 檔案名稱前綴設定 - 改為下拉組合框
+        # 檔案名稱前綴設定 - 使用下拉選單
         prefix_label = QLabel("檔案名稱前綴:")
         
-        # 創建水平佈局來放置輸入框和下拉按鈕
+        # 創建水平佈局來放置下拉選單和輸入框
         prefix_layout = QHBoxLayout()
+        
+        # 創建前綴下拉選單
+        self.prefix_combo = QComboBox()
+        self.prefix_combo.addItems([
+            "Per best-",
+            "Per best2-",
+            "Per best3-",
+            "Per Nice-",
+            "Per Nice2-",
+            "自訂..."
+        ])
         
         # 創建輸入框
         self.filename_prefix = QLineEdit()
-        self.filename_prefix.setPlaceholderText("例如: TEST- (留空使用原檔名)")
-        # 使用記住的前綴設定
-        self.filename_prefix.setText(self.preferences.get_filename_prefix())
-        self.filename_prefix.textChanged.connect(self.on_filename_prefix_changed)
+        self.filename_prefix.setPlaceholderText("輸入自訂前綴")
         
-        # 創建前綴歷史下拉框
-        self.prefix_history_combo = QComboBox()
-        self.prefix_history_combo.setFixedWidth(30)  # 設置為較窄的寬度
-        self.prefix_history_combo.setToolTip("選擇歷史前綴")
+        # 設定預設前綴
+        default_prefix = self.preferences.get_filename_prefix()
+        if not default_prefix:
+            default_prefix = "Per best-"  # 預設值
+            self.preferences.set_filename_prefix(default_prefix)
         
-        # 載入前綴歷史
-        self.load_prefix_history()
+        # 如果預設前綴在列表中，選擇它
+        index = self.prefix_combo.findText(default_prefix)
+        if index >= 0:
+            self.prefix_combo.setCurrentIndex(index)
+            self.filename_prefix.setText("")  # 清空自訂輸入框
+            self.filename_prefix.setVisible(False)  # 隱藏自訂輸入框
+        else:
+            # 如果不在列表中，選擇"自訂..."並顯示在輸入框
+            self.prefix_combo.setCurrentText("自訂...")
+            self.filename_prefix.setText(default_prefix)
+            self.filename_prefix.setVisible(True)
         
-        # 當選擇歷史前綴時更新輸入框
-        self.prefix_history_combo.currentTextChanged.connect(self.on_prefix_history_selected)
+        # 當選擇前綴時更新
+        self.prefix_combo.currentTextChanged.connect(self.on_prefix_selected)
+        self.filename_prefix.textChanged.connect(self.on_custom_prefix_changed)
         
         # 添加到佈局
+        prefix_layout.addWidget(self.prefix_combo)
         prefix_layout.addWidget(self.filename_prefix)
-        prefix_layout.addWidget(self.prefix_history_combo)
         
         options_layout.addWidget(prefix_label, 4, 0)
         options_layout.addLayout(prefix_layout, 4, 1)
@@ -1349,7 +1465,9 @@ class MainWindow(QMainWindow):
         
         # 添加文字大小調整按鈕
         font_size_layout = QHBoxLayout()
-        font_size_label = QLabel("文字大小:")
+        
+        # 日誌文字大小調整
+        font_size_label = QLabel("日誌文字:")
         font_size_layout.addWidget(font_size_label)
         
         self.decrease_font_button = QPushButton("-")
@@ -1361,6 +1479,22 @@ class MainWindow(QMainWindow):
         self.increase_font_button.setFixedSize(30, 25)
         self.increase_font_button.clicked.connect(self.increase_log_font_size)
         font_size_layout.addWidget(self.increase_font_button)
+        
+        font_size_layout.addSpacing(20)  # 間隔
+        
+        # 介面字體大小調整
+        ui_font_label = QLabel("介面字體:")
+        font_size_layout.addWidget(ui_font_label)
+        
+        self.decrease_ui_font_button = QPushButton("-")
+        self.decrease_ui_font_button.setFixedSize(30, 25)
+        self.decrease_ui_font_button.clicked.connect(self.decrease_ui_font_size)
+        font_size_layout.addWidget(self.decrease_ui_font_button)
+        
+        self.increase_ui_font_button = QPushButton("+")
+        self.increase_ui_font_button.setFixedSize(30, 25)
+        self.increase_ui_font_button.clicked.connect(self.increase_ui_font_size)
+        font_size_layout.addWidget(self.increase_ui_font_button)
         
         font_size_layout.addStretch()
         log_layout.addLayout(font_size_layout)
@@ -1411,7 +1545,7 @@ class MainWindow(QMainWindow):
         
         # 顯示 FFmpeg 狀態訊息
         if hasattr(self, 'ffmpeg_status_message') and self.ffmpeg_status_message:
-            self.log_output.append(self.ffmpeg_status_message)
+            self.append_log(self.ffmpeg_status_message)
             
         # 顯示所有待處理的訊息
         if hasattr(self, 'pending_messages') and self.pending_messages:
@@ -1545,7 +1679,14 @@ class MainWindow(QMainWindow):
         self.fetch_button.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+        
+        # 清空日誌區域，避免混淆
+        self.log_output.clear()
         self.log_output.append("正在獲取影片資訊...")
+        
+        # 確保滾動到底部
+        self.scroll_log_to_bottom()
+        
         import yt_dlp
         try:
             ydl_opts = {
@@ -1634,8 +1775,8 @@ class MainWindow(QMainWindow):
                     self.log_output.append("使用簡單模式下載...")
                     format_choice = self.get_format_choice()
                     resolution_choice = "最高品質"
-                    extract_audio_only = "音訊" in format_choice
-                    filename_prefix = self.filename_prefix.text().strip()
+                    extract_audio_only = False  # 簡化為只有影片模式
+                    filename_prefix = self.get_current_prefix()
                     cookies_path = self.cookies_input.text().strip()
                     format_string = "bestvideo+bestaudio/best"  # 使用最高品質
                     self.log_output.append("使用最高品質模式下載")
@@ -1664,8 +1805,8 @@ class MainWindow(QMainWindow):
             
             format_choice = self.get_format_choice()
             resolution_choice = self.resolution_combo.currentText()
-            extract_audio_only = "音訊" in format_choice
-            filename_prefix = self.filename_prefix.text().strip()
+            extract_audio_only = False  # 簡化為只有影片模式
+            filename_prefix = self.get_current_prefix()
             cookies_path = self.cookies_input.text().strip()
             format_string = None
             merge_output_format = 'mp4'
@@ -1758,12 +1899,31 @@ class MainWindow(QMainWindow):
                 self.pending_messages = []
             self.pending_messages.append(message)
             return
-            
+        
+        # 避免重複訊息
+        if hasattr(self, 'last_message') and self.last_message == message:
+            return
+        self.last_message = message
+        
+        # 過濾進度百分比訊息，只保留最新的
+        if "下載中... " in message and "%" in message:
+            # 找到並移除之前的進度訊息
+            cursor = self.log_output.textCursor()
+            cursor.movePosition(cursor.Start)
+            found = self.log_output.find("下載中... ", cursor)
+            if found:
+                cursor = self.log_output.textCursor()
+                cursor.select(cursor.LineUnderCursor)
+                selected_text = cursor.selectedText()
+                if "%" in selected_text:
+                    cursor.removeSelectedText()
+                    
         # 檢查是否為錯誤訊息，使用紅色顯示
         if any(error_keyword in message for error_keyword in ["失敗", "錯誤", "ERROR", "error", "failed", "❌", "合併視頻和音頻失敗"]):
             self.log_output.append(f'<span style="color: red;">{message}</span>')
         else:
             self.log_output.append(message)
+            
         # 自動滾動到底部
         self.log_output.verticalScrollBar().setValue(
             self.log_output.verticalScrollBar().maximum()
@@ -1780,6 +1940,17 @@ class MainWindow(QMainWindow):
         self.download_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.download_button.setText("開始下載")
+        
+        # 如果下載成功，清除 URL 輸入框
+        if success:
+            # 先保存 URL 到最近使用的 URL 列表
+            url = self.url_input.text().strip()
+            if url:
+                self.preferences.add_recent_url(url)
+                self.load_recent_urls()  # 重新載入 URL 列表
+            # 清空輸入框
+            self.url_input.clear()
+        # 如果下載失敗，保留 URL 不變
         
         # 處理多檔案選擇情況
         if success and message.startswith("MULTI_FILES:"):
@@ -1984,7 +2155,7 @@ class MainWindow(QMainWindow):
 • 最新版本請查看:
   https://github.com/yt-dlp/yt-dlp/releases
 """
-        self.log_output.append(version_info)
+        self.append_log(version_info)
     
     def stop_download(self):
         """停止下載"""
@@ -2156,94 +2327,10 @@ class MainWindow(QMainWindow):
         layout.addLayout(button_layout)
         dialog.exec_()
 
-    def on_filename_prefix_changed(self, text):
-        """當檔案名稱前綴變更時"""
-        self.preferences.set_filename_prefix(text)
-    
-    def load_prefix_history(self):
-        """載入前綴歷史"""
-        self.prefix_history_combo.clear()
-        self.prefix_history_combo.addItem("▼")  # 下拉指示符號
-        
-        # 添加歷史前綴
-        prefix_history = self.preferences.get_prefix_history()
-        if prefix_history:
-            self.prefix_history_combo.addItems(prefix_history)
-            # 添加刪除選項
-            self.prefix_history_combo.addItem("刪除...")
-    
-    def on_prefix_history_selected(self, text):
-        """當選擇歷史前綴時"""
-        if not text or text == "▼":
-            # 重置選擇
-            self.prefix_history_combo.setCurrentIndex(0)
-            return
-            
-        if text == "刪除...":
-            # 顯示刪除對話框
-            self.show_prefix_delete_dialog()
-            # 重置選擇
-            self.prefix_history_combo.setCurrentIndex(0)
-            return
-            
-        # 設置所選前綴到輸入框
-        self.filename_prefix.setText(text)
-        # 重置選擇
-        self.prefix_history_combo.setCurrentIndex(0)
-    
-    def show_prefix_delete_dialog(self):
-        """顯示前綴刪除對話框"""
-        prefix_history = self.preferences.get_prefix_history()
-        if not prefix_history:
-            QMessageBox.information(self, "前綴歷史", "沒有可刪除的前綴歷史")
-            return
-            
-        # 創建對話框
-        dialog = QDialog(self)
-        dialog.setWindowTitle("刪除前綴歷史")
-        dialog.setMinimumWidth(300)
-        
-        # 創建佈局
-        layout = QVBoxLayout(dialog)
-        
-        # 添加說明
-        layout.addWidget(QLabel("選擇要刪除的前綴:"))
-        
-        # 添加前綴列表
-        prefix_list = QListWidget()
-        prefix_list.addItems(prefix_history)
-        layout.addWidget(prefix_list)
-        
-        # 添加按鈕
-        button_layout = QHBoxLayout()
-        delete_button = QPushButton("刪除")
-        cancel_button = QPushButton("取消")
-        button_layout.addWidget(delete_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-        
-        # 連接按鈕事件
-        delete_button.clicked.connect(lambda: self.delete_prefix(prefix_list.currentItem().text(), dialog))
-        cancel_button.clicked.connect(dialog.reject)
-        
-        # 顯示對話框
-        dialog.exec()
-    
-    def delete_prefix(self, prefix, dialog):
-        """刪除前綴"""
-        if prefix:
-            self.preferences.remove_prefix_history(prefix)
-            # 重新載入前綴歷史
-            self.load_prefix_history()
-            dialog.accept()
+    # 移除不再需要的前綴歷史相關方法
 
     def get_format_choice(self):
-        if self.radio_video.isChecked():
-            return "影片"
-        elif self.radio_audio_mp3.isChecked():
-            return "僅音訊 (MP3)"
-        elif self.radio_audio_wav.isChecked():
-            return "僅音訊 (WAV)"
+        """獲取下載格式選擇 (簡化為只有影片)"""
         return "影片"
 
     def browse_path(self):
@@ -2527,4 +2614,164 @@ class MainWindow(QMainWindow):
         
         # 不顯示完成對話框，因為主下載已經顯示了
     
+    def scroll_log_to_bottom(self):
+        """確保日誌滾動到底部"""
+        if hasattr(self, 'log_output') and self.log_output:
+            # 使用 QTimer 確保在 UI 更新後滾動
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(50, lambda: self.log_output.verticalScrollBar().setValue(
+                self.log_output.verticalScrollBar().maximum()
+            ))
+
+    def reinstall_ytdlp(self):
+        """重新安裝 yt-dlp"""
+        self.log_output.clear()
+        self.log_output.append("正在重新安裝 yt-dlp...")
+        self.scroll_log_to_bottom()
+        
+        # 在背景線程中執行安裝
+        def install_thread():
+            try:
+                import subprocess
+                import sys
+                
+                # 先嘗試卸載
+                try:
+                    self.log_output.append("正在卸載現有的 yt-dlp...")
+                    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "yt-dlp"])
+                    self.log_output.append("✅ yt-dlp 已成功卸載")
+                except:
+                    self.log_output.append("⚠️ 卸載 yt-dlp 時出現警告，將繼續安裝")
+                
+                # 安裝最新版本
+                self.log_output.append("正在安裝最新版本的 yt-dlp...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"])
+                
+                # 檢查安裝後的版本
+                try:
+                    import yt_dlp
+                    version = yt_dlp.version.__version__
+                    self.log_output.append(f"✅ yt-dlp v{version} 已成功安裝")
+                    
+                    # 顯示成功訊息
+                    from PySide6.QtWidgets import QMessageBox
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, lambda: QMessageBox.information(self, "安裝成功", f"yt-dlp v{version} 已成功安裝"))
+                except:
+                    self.log_output.append("⚠️ 無法確認 yt-dlp 版本，但安裝過程已完成")
+                
+                self.scroll_log_to_bottom()
+                
+            except Exception as e:
+                self.log_output.append(f"❌ 重新安裝 yt-dlp 失敗: {str(e)}")
+                self.scroll_log_to_bottom()
+                
+                # 顯示錯誤訊息
+                from PySide6.QtWidgets import QMessageBox
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: QMessageBox.critical(self, "安裝失敗", f"重新安裝 yt-dlp 失敗: {str(e)}"))
+        
+        # 啟動安裝線程
+        import threading
+        threading.Thread(target=install_thread, daemon=True).start()
+    
+    def check_ytdlp_update(self):
+        """檢查 yt-dlp 更新"""
+        self.log_output.append("正在檢查 yt-dlp 更新...")
+        
+        # 在背景線程中檢查更新
+        def check_thread():
+            try:
+                import pkg_resources
+                import urllib.request
+                import json
+                
+                # 獲取當前版本
+                try:
+                    current_version = pkg_resources.get_distribution("yt-dlp").version
+                    self.log_output.append(f"當前 yt-dlp 版本: {current_version}")
+                except pkg_resources.DistributionNotFound:
+                    self.log_output.append("❌ yt-dlp 未安裝")
+                    return
+                
+                # 檢查網絡連接
+                try:
+                    urllib.request.urlopen("https://pypi.org/pypi/yt-dlp/json", timeout=3)
+                except:
+                    self.log_output.append("❌ 無法連接到網絡，跳過版本檢查")
+                    return
+                
+                # 獲取最新版本
+                try:
+                    with urllib.request.urlopen("https://pypi.org/pypi/yt-dlp/json") as response:
+                        data = json.loads(response.read().decode())
+                        latest_version = data["info"]["version"]
+                        self.log_output.append(f"最新 yt-dlp 版本: {latest_version}")
+                        
+                        # 比較版本
+                        if latest_version != current_version:
+                            # 在主線程中顯示對話框
+                            from PySide6.QtCore import QMetaObject, Qt, Q_ARG
+                            QMetaObject.invokeMethod(
+                                self, 
+                                "show_update_confirm_dialog", 
+                                Qt.QueuedConnection,
+                                Q_ARG(str, latest_version),
+                                Q_ARG(str, current_version)
+                            )
+                        else:
+                            self.log_output.append("✅ yt-dlp 已是最新版本")
+                except Exception as e:
+                    self.log_output.append(f"❌ 檢查版本時出錯: {e}")
+            
+            except Exception as e:
+                self.log_output.append(f"❌ 版本檢查過程中出錯: {e}")
+        
+        # 啟動檢查線程
+        import threading
+        threading.Thread(target=check_thread).start()
+
+    def on_prefix_selected(self, text):
+        """當從下拉選單選擇前綴時"""
+        if text == "自訂...":
+            # 顯示自訂輸入框
+            self.filename_prefix.setVisible(True)
+            self.filename_prefix.setFocus()
+        else:
+            # 隱藏自訂輸入框並使用選擇的前綴
+            self.filename_prefix.setVisible(False)
+            # 保存選擇的前綴
+            self.preferences.set_filename_prefix(text)
+            self.append_log(f"已設定檔案名稱前綴: {text}")
+    
+    def on_custom_prefix_changed(self, text):
+        """當自訂前綴文字變更時"""
+        if self.prefix_combo.currentText() == "自訂...":
+            # 只有在「自訂...」模式下才保存
+            self.preferences.set_filename_prefix(text)
+    
+    def get_current_prefix(self):
+        """獲取當前使用的前綴"""
+        if self.prefix_combo.currentText() == "自訂...":
+            return self.filename_prefix.text().strip()
+        else:
+            return self.prefix_combo.currentText()
+
+    def append_log(self, message):
+        """添加日誌訊息，避免重複顯示"""
+        # 檢查訊息是否已經顯示過
+        if message in self.log_messages:
+            return
+            
+        # 將訊息添加到已顯示集合中
+        self.log_messages.add(message)
+        
+        # 顯示訊息
+        self.log_output.append(message)
+        
+        # 自動滾動到底部
+        self.log_output.verticalScrollBar().setValue(
+            self.log_output.verticalScrollBar().maximum()
+        )
+
  

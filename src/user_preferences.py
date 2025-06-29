@@ -32,6 +32,8 @@ class UserPreferences:
             "window_x": None,
             "window_y": None,
             "language": "zh_TW",
+            "ui_font_size": 10,  # 新增：UI 字體大小
+            "log_font_size": 10,  # 新增：日誌字體大小
             
             # 下載歷史
             "recent_urls": [],

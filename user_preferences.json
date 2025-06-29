@@ -1,20 +1,220 @@
 {
-  "download_path": "D:/YOUTUBE2024",
+  "download_path": "C:\\Users\\Jovian\\Documents\\美图图库",
   "default_format": "影片",
   "default_resolution": "自動選擇最佳",
   "extract_audio_only": false,
   "window_width": 956,
-  "window_height": 611,
-  "window_x": 182,
-  "window_y": 93,
+  "window_height": 648,
+  "window_x": 454,
+  "window_y": 72,
   "language": "zh_TW",
+  "ui_font_size": 9,
+  "log_font_size": 10,
   "recent_urls": [
+    "https://www.youtube.com/watch?v=KeuUYzoeSk8",
+    "https://www.youtube.com/watch?v=oIeDyfdzbw8",
     "https://www.youtube.com/watch?v=K1jfORik2P8",
     "https://www.youtube.com/watch?v=b3mMyRoMYsU",
     "https://www.youtube.com/watch?v=t50CZVztmlw",
     "https://www.youtube.com/watch?v=wa3f6E1qf-Y"
   ],
   "download_history": [
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T22:20:42.490574"
+    },
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T22:08:42.894587"
+    },
+    {
+      "url": "",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T22:07:52.535486"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T20:40:55.414852"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=QmVuv2ibPgA",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T20:38:27.293142"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=gXCIGQQMUWw&t=2186s",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T20:36:53.983547"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T18:34:41.410149"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T18:33:56.908222"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T18:33:27.274556"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T18:32:40.437236"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": false,
+      "timestamp": "2025-06-29T18:27:42.491480"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": false,
+      "timestamp": "2025-06-29T18:27:12.816198"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T18:20:35.985337"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T18:19:44.762204"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T18:11:12.167772"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=88Na2Xdwye0",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T18:10:12.895485"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T10:18:39.513584"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc",
+      "title": "未知標題",
+      "format": "影片",
+      "success": false,
+      "timestamp": "2025-06-29T10:15:11.830960"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc",
+      "title": "未知標題",
+      "format": "影片",
+      "success": false,
+      "timestamp": "2025-06-29T10:14:56.943782"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T10:14:44.397558"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T10:14:08.934798"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T10:09:22.880723"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T09:58:04.441794"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T09:57:31.188970"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc...",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T09:53:10.847098"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=hT7pFWnZKsc...",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T09:51:57.870337"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=WO0wJCW0WsA&t=2s",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T09:10:21.310430"
+    },
+    {
+      "url": "https://www.youtube.com/watch?v=WO0wJCW0WsA&t=2s",
+      "title": "未知標題",
+      "format": "影片",
+      "success": true,
+      "timestamp": "2025-06-29T09:05:06.246558"
+    },
     {
       "url": "https://www.youtube.com/watch?v=WO0wJCW0WsA&t=2s",
       "title": "未知標題",
@@ -168,132 +368,6 @@
       "format": "影片",
       "success": false,
       "timestamp": "2025-06-29T00:04:36.897963"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=gxYO6b77x-o",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-29T00:04:01.750881"
-    },
-    {
-      "url": "https://www.youtube.com/shorts/GYis4-E6CnA",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T22:45:03.657047"
-    },
-    {
-      "url": "https://www.youtube.com/shorts/GYis4-E6CnA",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T22:44:56.331555"
-    },
-    {
-      "url": "https://www.youtube.com/shorts/GYis4-E6CnA",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T22:40:38.658059"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=SGjdwqzWyJo",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T22:39:20.428505"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=SGjdwqzWyJo",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T22:38:34.579173"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=vtTAuew2LMs&t=651s",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T22:34:47.599493"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=K1jfORik2P8",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-28T22:20:55.128972"
-    },
-    {
-      "url": "https://www.youtube.com/watch?v=u5_Ehm_dxSs",
-      "title": "未知標題",
-      "format": "影片",
-      "success": false,
-      "timestamp": "2025-06-28T22:17:02.946711"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T21:16:37.047023"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T21:09:09.372428"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T20:38:52.323272"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T20:38:24.584773"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T20:33:46.273924"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T20:31:56.778672"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T20:31:29.121902"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T20:18:11.926313"
-    },
-    {
-      "url": "",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T20:17:53.293168"
     }
   ],
   "auto_start_download": false,
@@ -307,22 +381,21 @@
   "add_timestamp": false,
   "sanitize_filename": true,
   "show_completion_dialog": false,
-  "filename_prefix": "Test-",
+  "filename_prefix": "Per Nice2-",
   "splitter_sizes": [
     433,
     518
   ],
   "prefix_history": [
+    "Per Nice2-",
+    "Per best3-",
+    "Per best2-",
     "Test-",
     "Tes-",
     "Te-",
     "T-",
-    "Per best2-",
     "Per best2",
     "Per best",
-    "Per bes",
-    "Per be",
-    "Per b"
-  ],
-  "log_font_size": 10
+    "Per bes"
+  ]
 }
