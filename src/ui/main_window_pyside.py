@@ -396,9 +396,13 @@ class MainWindow(QMainWindow):
         url_layout.addLayout(url_input_layout)
         # 下載完成提醒設定
         self.show_completion_dialog = QCheckBox("下載完成後顯示提醒視窗")
-        self.show_completion_dialog.setChecked(self.preferences.get_show_completion_dialog())
+        # 預設值為 False (不顯示提醒視窗)
+        self.show_completion_dialog.setChecked(False)
+        # 連接狀態變更事件
         self.show_completion_dialog.stateChanged.connect(self.on_completion_dialog_changed)
         url_layout.addWidget(self.show_completion_dialog)
+        # 在日誌中顯示當前狀態
+        self.log_output_ready = False  # 標記日誌區域是否已準備好
         
         # 新增 fallback 提示 label
         self.fallback_info_label = QLabel()
@@ -582,6 +586,13 @@ class MainWindow(QMainWindow):
         
         self.format_id_map = {}
         self.formats = []
+        
+        # 標記日誌區域已準備好
+        self.log_output_ready = True
+        
+        # 顯示下載完成提醒設置狀態
+        show_dialog = self.preferences.get_show_completion_dialog()
+        self.log_output.append(f"{'✅' if show_dialog else '❌'} 下載完成提醒已{'開啟' if show_dialog else '關閉'}")
     
     def setup_window_geometry(self):
         """設定視窗位置和大小"""
@@ -942,20 +953,26 @@ class MainWindow(QMainWindow):
 您可以在檔案總管中開啟資料夾查看下載的檔案。
 </span>"""
                 self.log_output.append(completion_message)
-                if self.show_completion_dialog.isChecked():
+                
+                # 直接使用 UI 元素的狀態，而不是偏好設定
+                show_dialog = self.show_completion_dialog.isChecked()
+                if show_dialog:
                     self.show_completion_dialog_with_options(download_path, filename, success=True)
-                else:
-                    QMessageBox.information(self, "下載完成", f"下載完成！\n\n檔案位置: {download_path}\n檔案名稱: {filename}")
+                # 如果未勾選，則不顯示任何對話框
             else:
                 self.log_output.append(message)
-                if self.show_completion_dialog.isChecked():
+                # 直接使用 UI 元素的狀態，而不是偏好設定
+                show_dialog = self.show_completion_dialog.isChecked()
+                if show_dialog:
                     QMessageBox.information(self, "完成", "下載完成！")
+                # 如果未勾選，則不顯示任何對話框
         else:
             self.log_output.append(f'<span style="color: red;">❌ 下載失敗: {message}</span>')
-            if self.show_completion_dialog.isChecked():
+            # 直接使用 UI 元素的狀態，而不是偏好設定
+            show_dialog = self.show_completion_dialog.isChecked()
+            if show_dialog:
                 self.show_completion_dialog_with_options(self.path_input.text(), "", success=False, fail_message=message)
-            else:
-                QMessageBox.critical(self, "錯誤", f"下載失敗: {message}")
+            # 如果未勾選，則不顯示任何對話框，只在日誌中顯示錯誤訊息
         url = self.url_input.text().strip()
         title = "未知標題"
         format_choice = self.get_format_choice()
@@ -1079,7 +1096,13 @@ class MainWindow(QMainWindow):
     
     def on_completion_dialog_changed(self, state):
         """當下載完成提醒設定改變時"""
-        self.preferences.set_show_completion_dialog(state == Qt.Checked)
+        from PySide6.QtCore import Qt
+        is_checked = state == Qt.Checked
+        # 確保設定被正確保存
+        result = self.preferences.set_show_completion_dialog(is_checked)
+        # 立即保存偏好設定到檔案
+        self.preferences.save_preferences()
+        self.log_output.append(f"{'✅' if is_checked else '❌'} 下載完成提醒已{'開啟' if is_checked else '關閉'} {'(設定已保存)' if result else '(設定保存失敗)'}")
     
     def open_file_directory(self, file_path):
         import subprocess, platform, os, sys
@@ -1118,10 +1141,17 @@ class MainWindow(QMainWindow):
     def show_completion_dialog_with_options(self, download_path, filename, success=True, fail_message=None):
         """顯示下載完成對話框，包含開啟目錄選項"""
         from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+        from PySide6.QtCore import Qt
+        
+        # 記錄對話框顯示
+        self.log_output.append(f"{'✅' if success else '❌'} 顯示{'下載完成' if success else '下載失敗'}提醒對話框")
+        
         dialog = QDialog(self)
         dialog.setWindowTitle("下載完成" if success else "下載失敗")
         dialog.setModal(True)
         dialog.setFixedSize(400, 200)
+        # 設置視窗置頂
+        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
         dialog.setStyleSheet("""
             QDialog { background-color: #f0f0f0; }
             QLabel { font-size: 12px; margin: 5px; }
