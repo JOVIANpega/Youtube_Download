@@ -435,7 +435,7 @@ class DownloadThread(QThread):
             
         elif d['status'] == 'finished':
             self.progress.emit("下載完成，正在處理...", 100, "--", "--")
-            
+    
         elif d['status'] == 'merging':
             # 處理合併進度
             if 'merged_bytes' in d and 'total_bytes' in d and d['total_bytes']:
@@ -476,6 +476,7 @@ class DownloadTab(QWidget):
         super().__init__(parent)
         self.download_path = download_path or os.path.expanduser("~/Downloads")
         self.download_items = {}
+        self.download_threads = {}  # 添加下載線程字典
         self.max_concurrent_downloads = 2  # 預設最大同時下載數
         self.prefix_history = ["Per Nice-", "Per Best3-", "Per Best2-", "Per Best-", "Per-"]  # 預設前綴選項
         self.load_settings()  # 載入設定
@@ -533,6 +534,73 @@ class DownloadTab(QWidget):
             log("已保存用戶設定")
         except Exception as e:
             log(f"保存設定失敗: {str(e)}")
+    
+    def apply_settings(self, settings):
+        """應用從設定頁面傳來的設定"""
+        log("正在應用設定到下載頁面...")
+        
+        # 應用下載路徑設定
+        if "download_path" in settings and settings["download_path"]:
+            self.download_path = settings["download_path"]
+            self.path_edit.setText(self.download_path)
+            log(f"已更新下載路徑: {self.download_path}")
+        
+        # 應用最大同時下載數
+        if "max_concurrent_downloads" in settings:
+            self.max_concurrent_downloads = settings["max_concurrent_downloads"]
+            self.max_downloads_spin.setValue(self.max_concurrent_downloads)
+            # 更新URL輸入框高度
+            line_height = 20  # 預估每行高度
+            padding = 30     # 額外空間
+            self.url_edit.setMinimumHeight(self.max_concurrent_downloads * line_height + padding)
+            self.url_edit.setMaximumHeight(self.max_concurrent_downloads * line_height + padding)
+            log(f"已更新最大同時下載數: {self.max_concurrent_downloads}")
+        
+        # 應用格式設定
+        if "default_format" in settings:
+            format_index = -1
+            if settings["default_format"] == "最高品質":
+                format_index = 0
+            elif settings["default_format"] == "僅視頻 (無音頻)":
+                format_index = 1
+            elif settings["default_format"] == "僅音訊 (MP3)":
+                format_index = 2
+            
+            if format_index >= 0:
+                self.format_combo.setCurrentIndex(format_index)
+                log(f"已更新下載格式: {settings['default_format']}")
+        
+        # 應用解析度設定
+        if "default_resolution" in settings:
+            resolution_index = self.resolution_combo.findText(settings["default_resolution"])
+            if resolution_index >= 0:
+                self.resolution_combo.setCurrentIndex(resolution_index)
+                log(f"已更新解析度: {settings['default_resolution']}")
+        
+        # 應用自動合併設定
+        if "auto_merge" in settings:
+            self.auto_merge_cb.setChecked(settings["auto_merge"])
+            log(f"已更新自動合併設定: {settings['auto_merge']}")
+        
+        # 應用檔名前綴設定
+        if "default_prefix" in settings and settings["default_prefix"]:
+            # 更新前綴下拉框
+            current_prefix = settings["default_prefix"]
+            
+            # 檢查是否已存在於前綴歷史中
+            if current_prefix not in self.prefix_history:
+                self.prefix_history.insert(0, current_prefix)  # 添加到歷史記錄的開頭
+                # 更新下拉框
+                self.prefix_combo.clear()
+                self.prefix_combo.addItems(self.prefix_history)
+            
+            self.prefix_combo.setCurrentText(current_prefix)
+            log(f"已更新檔名前綴: {current_prefix}")
+        
+        # 保存更新後的設定
+        self.save_settings()
+        
+        log("設定已成功應用到下載頁面")
 
     def init_ui(self):
         """初始化下載頁面UI"""
@@ -601,8 +669,13 @@ class DownloadTab(QWidget):
         # 設定最大寬度，避免過長
         self.prefix_combo.setMaximumWidth(150)
         
+        # 添加清空前綴按鈕
+        self.clear_prefix_btn = QPushButton("清空前綴")
+        self.clear_prefix_btn.clicked.connect(self.clear_prefix)
+        
         prefix_layout.addWidget(prefix_label)
         prefix_layout.addWidget(self.prefix_combo)
+        prefix_layout.addWidget(self.clear_prefix_btn)
         prefix_layout.addStretch(1)  # 添加彈性空間，使前綴框不佔滿整行
         left_settings.addLayout(prefix_layout)
         
@@ -1171,8 +1244,9 @@ class DownloadTab(QWidget):
                 lambda success, msg, file_path: self.download_finished(filename, success, msg, file_path)
             )
             
-            # 儲存線程引用並啟動
+            # 儲存線程引用到兩個字典中
             self.download_items[filename]['thread'] = download_thread
+            self.download_threads[filename] = download_thread
             download_thread.start()
             
         except Exception as e:
@@ -1332,41 +1406,44 @@ class DownloadTab(QWidget):
 
     def download_finished(self, filename, success, message, file_path):
         """下載完成回調"""
-        # 查找對應的進度條和標籤
-        progress_bar = self.findChild(QProgressBar, f"progress_bar_{filename}")
-        status_label = self.findChild(QLabel, f"status_label_{filename}")
-        speed_label = self.findChild(QLabel, f"speed_label_{filename}")
-        
-        if progress_bar and status_label and speed_label:
+        # 檢查項目是否存在
+        if filename in self.download_items:
+            item_data = self.download_items[filename]
+            
             if success:
-                # 更新UI
-                progress_bar.setValue(100)
-                status_label.setText("下載完成")  # 更改為更明確的標籤
-                speed_label.setText("--")
+                # 設置為綠色完成狀態
+                item_data["status_label"].setText("下載完成")
+                item_data["status_label"].setStyleSheet("color: green; font-weight: bold;")
+                item_data["progress_bar"].setValue(100)
+                item_data["progress_bar"].setStyleSheet(
+                    "QProgressBar::chunk { background-color: #4CAF50; }"
+                )
                 
-                # 記錄日誌
-                log(f"下載完成: {filename}")
+                # 更新按鈕狀態
+                item_data["pause_btn"].setEnabled(False)
+                item_data["delete_btn"].setText("刪除")
                 
-                # 顯示下載完成對話框
+                # 顯示完成對話框
                 self.show_download_complete_dialog(filename, file_path)
             else:
-                # 更新UI顯示錯誤
-                status_label.setText(f"錯誤: {message}")
-                speed_label.setText("--")
+                # 設置為紅色錯誤狀態
+                item_data["status_label"].setText("下載失敗")
+                item_data["status_label"].setStyleSheet("color: red; font-weight: bold;")
+                item_data["progress_bar"].setStyleSheet(
+                    "QProgressBar::chunk { background-color: #f44336; }"
+                )
                 
-                # 將進度條變為紅色，表示錯誤
-                progress_bar.setStyleSheet("QProgressBar::chunk { background-color: red; }")
+                # 更新按鈕狀態
+                item_data["pause_btn"].setEnabled(False)
+                item_data["delete_btn"].setText("刪除")
                 
-                # 記錄錯誤
-                log(f"下載失敗 [{filename}]: {message}")
-                
-                # 顯示錯誤詳情對話框
+                # 顯示錯誤對話框
                 self.show_error_dialog(filename, message)
         
-        # 清理線程
-        if filename in self.download_threads:
-            self.download_threads[filename].deleteLater()
-            del self.download_threads[filename]
+            # 清理下載線程
+            if filename in self.download_threads:
+                self.download_threads[filename].deleteLater()
+                del self.download_threads[filename]
         
         # 更新總進度
         self.update_total_progress()
@@ -1724,6 +1801,21 @@ class DownloadTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "錯誤", f"保存錯誤報告時發生錯誤: {str(e)}")
 
+    def clear_prefix(self):
+        """清空前綴"""
+        self.prefix_combo.setCurrentText("")
+        # 如果需要，可以將空前綴添加到歷史記錄中
+        if "" not in self.prefix_history:
+            self.prefix_history.insert(0, "")
+            self.prefix_combo.clear()
+            self.prefix_combo.addItems(self.prefix_history)
+            self.prefix_combo.setCurrentText("")
+        
+        log("已清空檔名前綴")
+        
+        # 保存設定
+        self.save_settings()
+
 class DownloadedFilesTab(QWidget):
     """已下載項目標籤頁"""
     
@@ -1825,6 +1917,9 @@ class DownloadedFilesTab(QWidget):
 class SettingsTab(QWidget):
     """設定標籤頁"""
     
+    # 定義信號
+    settings_applied = Signal(dict)
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
@@ -1844,10 +1939,7 @@ class SettingsTab(QWidget):
             "格式與品質", 
             "網路設定", 
             "性能優化", 
-            "命名與整理", 
-            "界面設定",
-            "整合與外掛", 
-            "備份與還原"
+            "命名與整理"
         ])
         self.categories.setCurrentRow(0)
         categories_layout.addWidget(self.categories)
@@ -1861,7 +1953,6 @@ class SettingsTab(QWidget):
         self.settings_stack.addWidget(self.create_network_settings())
         self.settings_stack.addWidget(self.create_performance_settings())
         self.settings_stack.addWidget(self.create_naming_settings())
-        # 其他設定頁面可以在這裡添加
         
         # 添加到主佈局
         layout.addWidget(categories_widget, 1)
@@ -1952,15 +2043,199 @@ class SettingsTab(QWidget):
     
     def apply_settings(self):
         """套用設定"""
-        print("套用設定")
+        log("正在套用設定...")
+        
+        # 收集所有設定
+        settings = {
+            # 基本設定
+            "download_path": self.folder_input.text(),
+            "max_concurrent_downloads": int(self.concurrent_combo.currentText()),
+            "show_notification": self.notify_cb.isChecked(),
+            "play_sound": self.sound_cb.isChecked(),
+            "auto_open_folder": self.open_folder_cb.isChecked(),
+            "file_exists_action": "ask" if self.ask_radio.isChecked() else 
+                                 "rename" if self.rename_radio.isChecked() else 
+                                 "overwrite",
+            
+            # 格式與品質設定
+            "default_format": self.default_format_combo.currentText() if hasattr(self, "default_format_combo") else "最高品質",
+            "default_resolution": self.default_resolution_combo.currentText() if hasattr(self, "default_resolution_combo") else "自動選擇最佳",
+            "audio_quality": self.audio_quality_combo.currentText() if hasattr(self, "audio_quality_combo") else "192 kbps",
+            "prefer_av1": self.prefer_av1_cb.isChecked() if hasattr(self, "prefer_av1_cb") else False,
+            "fallback_to_webm": self.fallback_to_webm_cb.isChecked() if hasattr(self, "fallback_to_webm_cb") else True,
+            "auto_merge": self.auto_merge_cb.isChecked() if hasattr(self, "auto_merge_cb") else True,
+            
+            # 命名設定
+            "default_prefix": self.default_prefix_input.text() if hasattr(self, "default_prefix_input") else "",
+            "sanitize_filename": self.sanitize_filename_cb.isChecked() if hasattr(self, "sanitize_filename_cb") else True,
+            "add_timestamp": self.add_timestamp_cb.isChecked() if hasattr(self, "add_timestamp_cb") else False,
+            "truncate_filename": self.truncate_filename_cb.isChecked() if hasattr(self, "truncate_filename_cb") else True,
+            "max_filename_length": self.max_length_spin.value() if hasattr(self, "max_length_spin") else 200,
+            "create_subfolders": self.create_subfolders_cb.isChecked() if hasattr(self, "create_subfolders_cb") else False,
+            "organize_by_date": self.organize_by_date_cb.isChecked() if hasattr(self, "organize_by_date_cb") else False,
+        }
+        
+        # 保存到用戶偏好文件
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            
+            # 讀取現有設定（如果存在）
+            existing_settings = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    try:
+                        existing_settings = json.load(f)
+                    except:
+                        existing_settings = {}
+            
+            # 更新設定
+            existing_settings.update(settings)
+            
+            # 保存設定
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(existing_settings, f, ensure_ascii=False, indent=4)
+                
+            log("設定已保存到用戶偏好文件")
+        except Exception as e:
+            log(f"保存設定失敗: {str(e)}")
+        
+        # 發送信號通知其他組件
+        self.settings_applied.emit(settings)
+        
+        # 顯示成功訊息
+        QMessageBox.information(self, "設定已套用", "設定已成功套用並保存。")
     
     def cancel_changes(self):
         """取消更改"""
-        print("取消更改")
+        log("取消設定更改")
+        # 重新載入設定
+        self.load_settings_from_file()
     
     def reset_settings(self):
         """重設為預設值"""
-        print("重設為預設值")
+        log("重設設定為預設值")
+        # 基本設定
+        self.folder_input.setText(str(Path.home() / "Downloads"))
+        self.concurrent_combo.setCurrentIndex(1)  # 預設為2
+        self.notify_cb.setChecked(True)
+        self.sound_cb.setChecked(True)
+        self.open_folder_cb.setChecked(False)
+        self.rename_radio.setChecked(True)
+        
+        # 格式與品質設定
+        if hasattr(self, "default_format_combo"):
+            self.default_format_combo.setCurrentIndex(0)  # 最高品質
+        if hasattr(self, "default_resolution_combo"):
+            self.default_resolution_combo.setCurrentIndex(0)  # 自動選擇最佳
+        if hasattr(self, "audio_quality_combo"):
+            self.audio_quality_combo.setCurrentIndex(2)  # 192 kbps
+        if hasattr(self, "prefer_av1_cb"):
+            self.prefer_av1_cb.setChecked(False)
+        if hasattr(self, "fallback_to_webm_cb"):
+            self.fallback_to_webm_cb.setChecked(True)
+        if hasattr(self, "auto_merge_cb"):
+            self.auto_merge_cb.setChecked(True)
+        
+        # 命名設定
+        if hasattr(self, "default_prefix_input"):
+            self.default_prefix_input.setText("TEST-")
+        if hasattr(self, "sanitize_filename_cb"):
+            self.sanitize_filename_cb.setChecked(True)
+        if hasattr(self, "add_timestamp_cb"):
+            self.add_timestamp_cb.setChecked(False)
+        if hasattr(self, "truncate_filename_cb"):
+            self.truncate_filename_cb.setChecked(True)
+        if hasattr(self, "max_length_spin"):
+            self.max_length_spin.setValue(200)
+        if hasattr(self, "create_subfolders_cb"):
+            self.create_subfolders_cb.setChecked(False)
+        if hasattr(self, "organize_by_date_cb"):
+            self.organize_by_date_cb.setChecked(False)
+    
+    def load_settings_from_file(self):
+        """從文件載入設定"""
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    
+                    # 載入基本設定
+                    if "download_path" in settings:
+                        self.folder_input.setText(settings["download_path"])
+                    
+                    if "max_concurrent_downloads" in settings:
+                        index = self.concurrent_combo.findText(str(settings["max_concurrent_downloads"]))
+                        if index >= 0:
+                            self.concurrent_combo.setCurrentIndex(index)
+                    
+                    if "show_notification" in settings:
+                        self.notify_cb.setChecked(settings["show_notification"])
+                    
+                    if "play_sound" in settings:
+                        self.sound_cb.setChecked(settings["play_sound"])
+                    
+                    if "auto_open_folder" in settings:
+                        self.open_folder_cb.setChecked(settings["auto_open_folder"])
+                    
+                    if "file_exists_action" in settings:
+                        if settings["file_exists_action"] == "ask":
+                            self.ask_radio.setChecked(True)
+                        elif settings["file_exists_action"] == "rename":
+                            self.rename_radio.setChecked(True)
+                        elif settings["file_exists_action"] == "overwrite":
+                            self.overwrite_radio.setChecked(True)
+                    
+                    # 載入格式與品質設定
+                    if hasattr(self, "default_format_combo") and "default_format" in settings:
+                        index = self.default_format_combo.findText(settings["default_format"])
+                        if index >= 0:
+                            self.default_format_combo.setCurrentIndex(index)
+                    
+                    if hasattr(self, "default_resolution_combo") and "default_resolution" in settings:
+                        index = self.default_resolution_combo.findText(settings["default_resolution"])
+                        if index >= 0:
+                            self.default_resolution_combo.setCurrentIndex(index)
+                    
+                    if hasattr(self, "audio_quality_combo") and "audio_quality" in settings:
+                        index = self.audio_quality_combo.findText(settings["audio_quality"])
+                        if index >= 0:
+                            self.audio_quality_combo.setCurrentIndex(index)
+                    
+                    if hasattr(self, "prefer_av1_cb") and "prefer_av1" in settings:
+                        self.prefer_av1_cb.setChecked(settings["prefer_av1"])
+                    
+                    if hasattr(self, "fallback_to_webm_cb") and "fallback_to_webm" in settings:
+                        self.fallback_to_webm_cb.setChecked(settings["fallback_to_webm"])
+                    
+                    if hasattr(self, "auto_merge_cb") and "auto_merge" in settings:
+                        self.auto_merge_cb.setChecked(settings["auto_merge"])
+                    
+                    # 載入命名設定
+                    if hasattr(self, "default_prefix_input") and "default_prefix" in settings:
+                        self.default_prefix_input.setText(settings["default_prefix"])
+                    
+                    if hasattr(self, "sanitize_filename_cb") and "sanitize_filename" in settings:
+                        self.sanitize_filename_cb.setChecked(settings["sanitize_filename"])
+                    
+                    if hasattr(self, "add_timestamp_cb") and "add_timestamp" in settings:
+                        self.add_timestamp_cb.setChecked(settings["add_timestamp"])
+                    
+                    if hasattr(self, "truncate_filename_cb") and "truncate_filename" in settings:
+                        self.truncate_filename_cb.setChecked(settings["truncate_filename"])
+                    
+                    if hasattr(self, "max_length_spin") and "max_filename_length" in settings:
+                        self.max_length_spin.setValue(settings["max_filename_length"])
+                    
+                    if hasattr(self, "create_subfolders_cb") and "create_subfolders" in settings:
+                        self.create_subfolders_cb.setChecked(settings["create_subfolders"])
+                    
+                    if hasattr(self, "organize_by_date_cb") and "organize_by_date" in settings:
+                        self.organize_by_date_cb.setChecked(settings["organize_by_date"])
+                    
+                    log("從文件載入設定成功")
+        except Exception as e:
+            log(f"載入設定失敗: {str(e)}")
 
     def create_format_settings(self):
         """創建格式與品質設定頁面"""
@@ -2023,9 +2298,9 @@ class SettingsTab(QWidget):
         self.auto_merge_cb.setChecked(True)
         merge_layout.addWidget(self.auto_merge_cb)
         
-        self.keep_separate_files_cb = QCheckBox("保留未合併的原始檔案")
-        self.keep_separate_files_cb.setChecked(False)
-        merge_layout.addWidget(self.keep_separate_files_cb)
+        self.keep_separate_cb = QCheckBox("保留未合併的原始檔案")
+        self.keep_separate_cb.setChecked(False)
+        merge_layout.addWidget(self.keep_separate_cb)
         
         format_layout.addWidget(merge_group)
         
@@ -2040,53 +2315,86 @@ class SettingsTab(QWidget):
         buttons_layout.addWidget(reset_btn)
         format_layout.addLayout(buttons_layout)
         
+        # 連接信號
+        apply_btn.clicked.connect(self.apply_settings)
+        cancel_btn.clicked.connect(self.cancel_changes)
+        reset_btn.clicked.connect(self.reset_settings)
+        
         return format_widget
 
     def create_network_settings(self):
-        """創建網路設定頁面 (包含SSL修復，V1.55特色)"""
+        """創建網路設定頁面"""
         network_widget = QWidget()
         network_layout = QVBoxLayout(network_widget)
         
-        # SSL證書設定
-        ssl_group = QGroupBox("SSL證書設定")
-        ssl_layout = QVBoxLayout(ssl_group)
-        
-        self.ssl_verification_cb = QCheckBox("啟用SSL證書驗證")
-        self.ssl_verification_cb.setChecked(False)
-        ssl_layout.addWidget(self.ssl_verification_cb)
-        
-        self.auto_fix_ssl_cb = QCheckBox("自動修復SSL證書問題")
-        self.auto_fix_ssl_cb.setChecked(True)
-        ssl_layout.addWidget(self.auto_fix_ssl_cb)
-        
-        ssl_fix_btn = QPushButton("立即修復SSL證書問題")
-        ssl_layout.addWidget(ssl_fix_btn)
-        
-        network_layout.addWidget(ssl_group)
-        
-        # 代理伺服器設定
-        proxy_group = QGroupBox("代理伺服器設定")
+        # 代理設定組
+        proxy_group = QGroupBox("代理設定")
         proxy_layout = QVBoxLayout(proxy_group)
         
+        # 是否使用代理
         self.use_proxy_cb = QCheckBox("使用代理伺服器")
         self.use_proxy_cb.setChecked(False)
         proxy_layout.addWidget(self.use_proxy_cb)
         
+        # 代理類型
+        proxy_type_layout = QHBoxLayout()
+        proxy_type_layout.addWidget(QLabel("代理類型:"))
+        self.proxy_type_combo = QComboBox()
+        self.proxy_type_combo.addItems(["HTTP", "SOCKS4", "SOCKS5"])
+        proxy_type_layout.addWidget(self.proxy_type_combo)
+        proxy_type_layout.addStretch(1)
+        proxy_layout.addLayout(proxy_type_layout)
+        
+        # 代理位址
         proxy_address_layout = QHBoxLayout()
-        proxy_address_layout.addWidget(QLabel("代理伺服器位址:"))
+        proxy_address_layout.addWidget(QLabel("代理位址:"))
         self.proxy_address_input = QLineEdit()
-        self.proxy_address_input.setEnabled(False)
+        self.proxy_address_input.setPlaceholderText("例如: 127.0.0.1")
         proxy_address_layout.addWidget(self.proxy_address_input)
         proxy_layout.addLayout(proxy_address_layout)
         
+        # 代理連接埠
+        proxy_port_layout = QHBoxLayout()
+        proxy_port_layout.addWidget(QLabel("連接埠:"))
+        self.proxy_port_input = QLineEdit()
+        self.proxy_port_input.setPlaceholderText("例如: 1080")
+        proxy_port_layout.addWidget(self.proxy_port_input)
+        proxy_port_layout.addStretch(1)
+        proxy_layout.addLayout(proxy_port_layout)
+        
+        # 代理驗證
+        auth_group = QGroupBox("代理驗證")
+        auth_layout = QVBoxLayout(auth_group)
+        
+        self.use_auth_cb = QCheckBox("需要驗證")
+        self.use_auth_cb.setChecked(False)
+        auth_layout.addWidget(self.use_auth_cb)
+        
+        # 使用者名稱
+        username_layout = QHBoxLayout()
+        username_layout.addWidget(QLabel("使用者名稱:"))
+        self.proxy_username_input = QLineEdit()
+        username_layout.addWidget(self.proxy_username_input)
+        auth_layout.addLayout(username_layout)
+        
+        # 密碼
+        password_layout = QHBoxLayout()
+        password_layout.addWidget(QLabel("密碼:"))
+        self.proxy_password_input = QLineEdit()
+        self.proxy_password_input.setEchoMode(QLineEdit.Password)
+        password_layout.addWidget(self.proxy_password_input)
+        auth_layout.addLayout(password_layout)
+        
+        proxy_layout.addWidget(auth_group)
         network_layout.addWidget(proxy_group)
         
-        # 連接設定
+        # 連接設定組
         connection_group = QGroupBox("連接設定")
         connection_layout = QVBoxLayout(connection_group)
         
+        # 重試次數
         retry_layout = QHBoxLayout()
-        retry_layout.addWidget(QLabel("重試次數:"))
+        retry_layout.addWidget(QLabel("下載失敗重試次數:"))
         self.retry_spin = QSpinBox()
         self.retry_spin.setMinimum(0)
         self.retry_spin.setMaximum(10)
@@ -2095,15 +2403,32 @@ class SettingsTab(QWidget):
         retry_layout.addStretch(1)
         connection_layout.addLayout(retry_layout)
         
+        # 等待時間
+        wait_layout = QHBoxLayout()
+        wait_layout.addWidget(QLabel("重試間隔時間 (秒):"))
+        self.wait_spin = QSpinBox()
+        self.wait_spin.setMinimum(1)
+        self.wait_spin.setMaximum(60)
+        self.wait_spin.setValue(5)
+        wait_layout.addWidget(self.wait_spin)
+        wait_layout.addStretch(1)
+        connection_layout.addLayout(wait_layout)
+        
+        # 超時時間
         timeout_layout = QHBoxLayout()
-        timeout_layout.addWidget(QLabel("連接超時 (秒):"))
+        timeout_layout.addWidget(QLabel("連接超時時間 (秒):"))
         self.timeout_spin = QSpinBox()
-        self.timeout_spin.setMinimum(5)
-        self.timeout_spin.setMaximum(120)
-        self.timeout_spin.setValue(30)
+        self.timeout_spin.setMinimum(10)
+        self.timeout_spin.setMaximum(300)
+        self.timeout_spin.setValue(60)
         timeout_layout.addWidget(self.timeout_spin)
         timeout_layout.addStretch(1)
         connection_layout.addLayout(timeout_layout)
+        
+        # SSL驗證
+        self.disable_ssl_cb = QCheckBox("停用SSL證書驗證（解決某些SSL錯誤）")
+        self.disable_ssl_cb.setChecked(True)
+        connection_layout.addWidget(self.disable_ssl_cb)
         
         network_layout.addWidget(connection_group)
         
@@ -2119,7 +2444,9 @@ class SettingsTab(QWidget):
         network_layout.addLayout(buttons_layout)
         
         # 連接信號
-        self.use_proxy_cb.toggled.connect(self.proxy_address_input.setEnabled)
+        apply_btn.clicked.connect(self.apply_settings)
+        cancel_btn.clicked.connect(self.cancel_changes)
+        reset_btn.clicked.connect(self.reset_settings)
         
         return network_widget
 
@@ -2128,57 +2455,49 @@ class SettingsTab(QWidget):
         performance_widget = QWidget()
         performance_layout = QVBoxLayout(performance_widget)
         
-        # 下載性能
-        download_group = QGroupBox("下載性能")
-        download_layout = QVBoxLayout(download_group)
-        
-        concurrent_layout = QHBoxLayout()
-        concurrent_layout.addWidget(QLabel("同時下載數量:"))
-        self.concurrent_spin = QSpinBox()
-        self.concurrent_spin.setMinimum(1)
-        self.concurrent_spin.setMaximum(10)
-        self.concurrent_spin.setValue(2)
-        concurrent_layout.addWidget(self.concurrent_spin)
-        concurrent_layout.addStretch(1)
-        download_layout.addLayout(concurrent_layout)
-        
-        speed_limit_layout = QHBoxLayout()
-        speed_limit_layout.addWidget(QLabel("下載速度限制 (KB/s):"))
-        self.speed_limit_spin = QSpinBox()
-        self.speed_limit_spin.setMinimum(0)
-        self.speed_limit_spin.setMaximum(100000)
-        self.speed_limit_spin.setValue(0)
-        self.speed_limit_spin.setSpecialValueText("無限制")
-        speed_limit_layout.addWidget(self.speed_limit_spin)
-        speed_limit_layout.addStretch(1)
-        download_layout.addLayout(speed_limit_layout)
-        
-        performance_layout.addWidget(download_group)
-        
-        # 執行緒設定
+        # 執行緒設定組
         thread_group = QGroupBox("執行緒設定")
         thread_layout = QVBoxLayout(thread_group)
         
-        self.use_multithreading_cb = QCheckBox("使用多執行緒下載")
-        self.use_multithreading_cb.setChecked(True)
-        thread_layout.addWidget(self.use_multithreading_cb)
+        # 執行緒數量
+        thread_count_layout = QHBoxLayout()
+        thread_count_layout.addWidget(QLabel("下載執行緒數量:"))
+        self.thread_spin = QSpinBox()
+        self.thread_spin.setMinimum(1)
+        self.thread_spin.setMaximum(32)
+        self.thread_spin.setValue(4)
+        thread_count_layout.addWidget(self.thread_spin)
+        thread_count_layout.addStretch(1)
+        thread_layout.addLayout(thread_count_layout)
         
-        thread_number_layout = QHBoxLayout()
-        thread_number_layout.addWidget(QLabel("每個檔案的執行緒數:"))
-        self.thread_number_spin = QSpinBox()
-        self.thread_number_spin.setMinimum(1)
-        self.thread_number_spin.setMaximum(16)
-        self.thread_number_spin.setValue(4)
-        thread_number_layout.addWidget(self.thread_number_spin)
-        thread_number_layout.addStretch(1)
-        thread_layout.addLayout(thread_number_layout)
+        # 分段下載
+        self.segment_cb = QCheckBox("啟用分段下載 (更快但可能增加伺服器負載)")
+        self.segment_cb.setChecked(True)
+        thread_layout.addWidget(self.segment_cb)
+        
+        # 分段大小
+        segment_size_layout = QHBoxLayout()
+        segment_size_layout.addWidget(QLabel("分段大小 (MB):"))
+        self.segment_spin = QSpinBox()
+        self.segment_spin.setMinimum(1)
+        self.segment_spin.setMaximum(100)
+        self.segment_spin.setValue(10)
+        segment_size_layout.addWidget(self.segment_spin)
+        segment_size_layout.addStretch(1)
+        thread_layout.addLayout(segment_size_layout)
         
         performance_layout.addWidget(thread_group)
         
-        # 記憶體使用
-        memory_group = QGroupBox("記憶體使用")
+        # 記憶體設定組
+        memory_group = QGroupBox("記憶體設定")
         memory_layout = QVBoxLayout(memory_group)
         
+        # 使用記憶體緩衝
+        self.memory_buffer_cb = QCheckBox("使用記憶體緩衝區 (更快但消耗更多記憶體)")
+        self.memory_buffer_cb.setChecked(True)
+        memory_layout.addWidget(self.memory_buffer_cb)
+        
+        # 緩衝區大小
         buffer_layout = QHBoxLayout()
         buffer_layout.addWidget(QLabel("緩衝大小 (MB):"))
         self.buffer_spin = QSpinBox()
@@ -2202,6 +2521,11 @@ class SettingsTab(QWidget):
         buttons_layout.addWidget(reset_btn)
         performance_layout.addLayout(buttons_layout)
         
+        # 連接信號
+        apply_btn.clicked.connect(self.apply_settings)
+        cancel_btn.clicked.connect(self.cancel_changes)
+        reset_btn.clicked.connect(self.reset_settings)
+        
         return performance_widget
 
     def create_naming_settings(self):
@@ -2218,6 +2542,12 @@ class SettingsTab(QWidget):
         prefix_layout.addWidget(QLabel("預設檔案名稱前綴:"))
         self.default_prefix_input = QLineEdit("TEST-")
         prefix_layout.addWidget(self.default_prefix_input)
+        
+        # 添加清空前綴按鈕
+        self.clear_prefix_btn = QPushButton("清空前綴")
+        self.clear_prefix_btn.clicked.connect(lambda: self.default_prefix_input.setText(""))
+        prefix_layout.addWidget(self.clear_prefix_btn)
+        
         filename_layout.addLayout(prefix_layout)
         
         # 前綴歷史記錄
@@ -2293,7 +2623,31 @@ class SettingsTab(QWidget):
         buttons_layout.addWidget(reset_btn)
         naming_layout.addLayout(buttons_layout)
         
+        # 連接信號
+        apply_btn.clicked.connect(self.apply_settings)
+        cancel_btn.clicked.connect(self.cancel_changes)
+        reset_btn.clicked.connect(self.reset_settings)
+        self.use_selected_prefix_btn.clicked.connect(self.use_selected_prefix)
+        self.remove_prefix_btn.clicked.connect(self.remove_selected_prefix)
+        
         return naming_widget
+        
+    def use_selected_prefix(self):
+        """使用選中的前綴"""
+        selected_items = self.prefix_history_list.selectedItems()
+        if selected_items:
+            selected_prefix = selected_items[0].text()
+            self.default_prefix_input.setText(selected_prefix)
+            log(f"已選擇前綴: {selected_prefix}")
+            
+    def remove_selected_prefix(self):
+        """移除選中的前綴"""
+        selected_items = self.prefix_history_list.selectedItems()
+        if selected_items:
+            row = self.prefix_history_list.row(selected_items[0])
+            selected_prefix = selected_items[0].text()
+            self.prefix_history_list.takeItem(row)
+            log(f"已移除前綴: {selected_prefix}")
 
 class QStackedWidget(QWidget):
     """自定義堆疊小部件"""
@@ -2330,7 +2684,7 @@ class MainWindow(QMainWindow):
     
     def init_ui(self):
         """初始化用戶界面"""
-        self.setWindowTitle("YouTube下載器 V1.61 - 分頁式界面")
+        self.setWindowTitle("YouTube下載器 V1.63")
         self.setGeometry(100, 100, 900, 700)
         
         # 創建主佈局
@@ -2348,10 +2702,24 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.download_tab, "下載任務")
         self.tabs.addTab(self.settings_tab, "設定")
         
+        # 連接設定頁面和下載頁面
+        self.settings_tab.settings_applied.connect(self.on_settings_applied)
+        
+        # 載入初始設定
+        self.settings_tab.load_settings_from_file()
+        
         layout.addWidget(self.tabs)
         
         # 顯示主視窗
         self.show()
+    
+    def on_settings_applied(self, settings):
+        """當設定被套用時"""
+        log("設定已套用，正在更新下載頁面...")
+        self.download_tab.apply_settings(settings)
+        
+        # 切換回下載頁面
+        self.tabs.setCurrentIndex(0)
 
 def main():
     """主函數"""
