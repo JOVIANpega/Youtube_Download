@@ -1,33 +1,51 @@
 {
-  "download_path": "D:/download 2024",
-  "default_format": "影片",
-  "default_resolution": "自動選擇最佳",
-  "extract_audio_only": false,
-  "window_width": 1000,
-  "window_height": 800,
-  "window_x": 7,
-  "window_y": 0,
-  "language": "zh_TW",
-  "recent_urls": [
-    "https://www.youtube.com/watch?v=wa3f6E1qf-Y"
-  ],
-  "download_history": [
-    {
-      "url": "https://www.youtube.com/watch?v=wa3f6E1qf-Y",
-      "title": "未知標題",
-      "format": "影片",
-      "success": true,
-      "timestamp": "2025-06-28T20:11:41.109001"
-    }
-  ],
-  "auto_start_download": false,
-  "show_progress_notifications": true,
-  "minimize_to_tray": false,
-  "max_retries": 3,
-  "timeout": 30,
-  "use_proxy": false,
-  "proxy_url": "",
-  "filename_template": "%(title)s.%(ext)s",
-  "add_timestamp": false,
-  "sanitize_filename": true
+    "download_path": "D:/DEL_TEST",
+    "default_format": "影片",
+    "default_resolution": "自動選擇最佳",
+    "extract_audio_only": false,
+    "window_width": 1000,
+    "window_height": 800,
+    "window_x": 7,
+    "window_y": 0,
+    "language": "zh_TW",
+    "recent_urls": [
+        "https://www.youtube.com/watch?v=wa3f6E1qf-Y"
+    ],
+    "download_history": [
+        {
+            "url": "https://www.youtube.com/watch?v=wa3f6E1qf-Y",
+            "title": "未知標題",
+            "format": "影片",
+            "success": true,
+            "timestamp": "2025-06-28T20:11:41.109001"
+        }
+    ],
+    "auto_start_download": false,
+    "show_progress_notifications": true,
+    "minimize_to_tray": false,
+    "max_retries": 3,
+    "timeout": 30,
+    "use_proxy": false,
+    "proxy_url": "",
+    "filename_template": "%(title)s.%(ext)s",
+    "add_timestamp": false,
+    "sanitize_filename": true,
+    "max_concurrent_downloads": 2,
+    "prefix_history": [
+        "Per Nice-",
+        "Per Best3-",
+        "Per Best2-",
+        "Per Best-",
+        "Per-",
+        "Test-",
+        "Test-h",
+        "Test-ht",
+        "Test-htt",
+        "Test-http",
+        "Test-https",
+        "Test-https:",
+        "Test-https:/",
+        "Test-https://",
+        "Test-https://w"
+    ]
 }

@@ -435,6 +435,22 @@ class DownloadThread(QThread):
             
         elif d['status'] == 'finished':
             self.progress.emit("下載完成，正在處理...", 100, "--", "--")
+            
+        elif d['status'] == 'merging':
+            # 處理合併進度
+            if 'merged_bytes' in d and 'total_bytes' in d and d['total_bytes']:
+                percent = int((d['merged_bytes'] / d['total_bytes']) * 100)
+                self.progress.emit(f"正在合併檔案... {percent}%", percent, "--", "--")
+            else:
+                self.progress.emit("正在合併檔案...", 90, "--", "--")  # 預設顯示90%進度
+                
+        elif d['status'] == 'postprocessing':
+            # 處理後處理進度
+            if '_percent' in d:
+                percent = int(float(d['_percent']))
+                self.progress.emit(f"正在處理檔案... {percent}%", percent, "--", "--")
+            else:
+                self.progress.emit("正在處理檔案...", 95, "--", "--")  # 預設顯示95%進度
     
     def sanitize_filename(self, filename):
         """清理檔案名稱，移除不合法字符"""
@@ -453,124 +469,370 @@ class DownloadThread(QThread):
         self.is_cancelled = True
 
 class DownloadTab(QWidget):
-    """下載任務標籤頁"""
+    """下載頁籤"""
     
     def __init__(self, parent=None, download_path=None):
+        """初始化"""
         super().__init__(parent)
-        # 設定預設下載路徑
-        if download_path:
-            self.download_path = download_path
-        else:
-            self.download_path = os.path.expanduser("~/Downloads")
-        
-        self.download_threads = {}  # 儲存下載線程
-        self.download_formats = {}  # 儲存每個下載項目的格式選項
-        self.download_resolutions = {}  # 儲存每個下載項目的解析度選項
-        self.auto_merge_options = {}  # 儲存每個下載項目的合併選項
+        self.download_path = download_path or os.path.expanduser("~/Downloads")
+        self.download_items = {}
+        self.max_concurrent_downloads = 2  # 預設最大同時下載數
+        self.prefix_history = ["Per Nice-", "Per Best3-", "Per Best2-", "Per Best-", "Per-"]  # 預設前綴選項
+        self.load_settings()  # 載入設定
         self.init_ui()
-        self.demo_downloads()  # 添加模擬下載項目
     
+    def load_settings(self):
+        """載入設定"""
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    
+                    # 載入最大同時下載數
+                    self.max_concurrent_downloads = settings.get("max_concurrent_downloads", 2)
+                    
+                    # 載入前綴歷史
+                    saved_prefixes = settings.get("prefix_history", [])
+                    if saved_prefixes:
+                        # 合併預設前綴和已保存的前綴，去重
+                        all_prefixes = self.prefix_history + saved_prefixes
+                        self.prefix_history = list(dict.fromkeys(all_prefixes))  # 去重保持順序
+                        
+                    # 載入下載路徑
+                    if "download_path" in settings and os.path.exists(settings["download_path"]):
+                        self.download_path = settings["download_path"]
+                        
+                    log("已載入用戶設定")
+        except Exception as e:
+            log(f"載入設定失敗: {str(e)}")
+    
+    def save_settings(self):
+        """保存設定"""
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            
+            # 讀取現有設定（如果存在）
+            settings = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    try:
+                        settings = json.load(f)
+                    except:
+                        settings = {}
+            
+            # 更新設定
+            settings["max_concurrent_downloads"] = self.max_concurrent_downloads
+            settings["prefix_history"] = self.prefix_history
+            settings["download_path"] = self.download_path
+            
+            # 保存設定
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(settings, f, ensure_ascii=False, indent=4)
+                
+            log("已保存用戶設定")
+        except Exception as e:
+            log(f"保存設定失敗: {str(e)}")
+
     def init_ui(self):
-        """初始化用戶界面"""
-        # 創建主佈局
-        layout = QVBoxLayout(self)
+        """初始化下載頁面UI"""
+        main_layout = QVBoxLayout(self)
         
-        # URL輸入區域
-        url_group = QGroupBox("貼入一個或多個YouTube網址")
-        url_group.setObjectName("url_input_group")  # 添加對象名稱
-        url_layout = QVBoxLayout(url_group)
-        self.url_input = QTextEdit()
-        self.url_input.setPlaceholderText("在此處貼上一個或多個YouTube網址，每行一個...")
-        self.url_input.setMinimumHeight(100)
-        url_layout.addWidget(self.url_input)
-        layout.addWidget(url_group)
+        # 創建頂部輸入區域
+        input_group = QGroupBox("輸入YouTube連結")
+        input_layout = QVBoxLayout(input_group)
         
-        # 按鈕區域
-        buttons_layout = QHBoxLayout()
-        self.download_btn = QPushButton("開始下載")
-        self.pause_btn = QPushButton("暫停所有")
-        self.delete_btn = QPushButton("刪除選取")
-        self.auto_merge_cb = QCheckBox("自動合併")
-        self.auto_merge_cb.setChecked(True)
+        # URL輸入框 - 根據最大同時下載數動態調整高度
+        url_layout = QVBoxLayout()
+        url_label = QLabel(f"YouTube連結 (每行一個，最多同時下載 {self.max_concurrent_downloads} 個):")
+        self.url_edit = QTextEdit()
+        self.url_edit.setPlaceholderText("在這裡貼上一個或多個YouTube視頻連結，每行一個")
         
-        buttons_layout.addWidget(self.download_btn)
-        buttons_layout.addWidget(self.pause_btn)
-        buttons_layout.addWidget(self.delete_btn)
-        buttons_layout.addStretch(1)
-        buttons_layout.addWidget(self.auto_merge_cb)
-        layout.addLayout(buttons_layout)
+        # 動態調整高度 - 根據最大同時下載數
+        line_height = 20  # 預估每行高度
+        padding = 30     # 額外空間
+        self.url_edit.setMinimumHeight(self.max_concurrent_downloads * line_height + padding)
+        self.url_edit.setMaximumHeight(self.max_concurrent_downloads * line_height + padding)
         
-        # V1.55特色: 下載選項區域
-        options_group = QGroupBox("下載選項")
-        options_group.setObjectName("download_options_group")
-        options_layout = QHBoxLayout(options_group)
+        url_layout.addWidget(url_label)
+        url_layout.addWidget(self.url_edit)
         
-        # 格式選項
+        # 新增：視頻標題顯示區
+        self.title_label = QLabel("")
+        self.title_label.setWordWrap(True)
+        self.title_label.setStyleSheet("font-weight: bold; color: #0066cc; margin: 5px 0;")
+        
+        input_layout.addLayout(url_layout)
+        input_layout.addWidget(self.title_label)
+        
+        # 設定區域
+        settings_layout = QHBoxLayout()
+        
+        # 左側設定
+        left_settings = QVBoxLayout()
+        
+        # 格式選擇 - 移除不需要的音訊格式
         format_layout = QHBoxLayout()
-        format_layout.addWidget(QLabel("格式:"))
+        format_label = QLabel("下載格式:")
         self.format_combo = QComboBox()
-        self.format_combo.addItems(["最高品質", "僅影片", "僅音訊 (MP3)", "僅音訊 (WAV)"])
-        format_layout.addWidget(self.format_combo)
-        options_layout.addLayout(format_layout)
+        self.format_combo.addItems(["最高品質", "僅視頻 (無音頻)", "僅音訊 (MP3)"])
+        self.format_combo.currentIndexChanged.connect(self.on_format_changed)
+        format_layout.addWidget(format_label)
+        format_layout.addWidget(self.format_combo, 1)
+        left_settings.addLayout(format_layout)
         
-        # 解析度選項
+        # 解析度選擇
         resolution_layout = QHBoxLayout()
-        resolution_layout.addWidget(QLabel("解析度:"))
+        resolution_label = QLabel("解析度:")
         self.resolution_combo = QComboBox()
-        self.resolution_combo.addItems(["自動選擇最佳", "4K", "1080P (Full HD)", "720P (HD)", "480P", "360P"])
-        resolution_layout.addWidget(self.resolution_combo)
-        options_layout.addLayout(resolution_layout)
+        self.resolution_combo.addItems(["自動選擇最佳", "4K", "1080p", "720p", "480p", "360p", "240p"])
+        resolution_layout.addWidget(resolution_label)
+        resolution_layout.addWidget(self.resolution_combo, 1)
+        left_settings.addLayout(resolution_layout)
         
-        # 檔案名稱前綴
+        # 檔名前綴 - 改為下拉選單，調整寬度
         prefix_layout = QHBoxLayout()
-        prefix_layout.addWidget(QLabel("前綴:"))
-        self.prefix_input = QLineEdit("TEST-")
-        prefix_layout.addWidget(self.prefix_input)
-        options_layout.addLayout(prefix_layout)
+        prefix_label = QLabel("檔名前綴:")
+        self.prefix_combo = QComboBox()
+        self.prefix_combo.setEditable(True)
+        self.prefix_combo.addItems(self.prefix_history)
+        self.prefix_combo.setCurrentText(self.prefix_history[0] if self.prefix_history else "")
+        self.prefix_combo.currentTextChanged.connect(self.on_prefix_changed)
+        # 設定最大寬度，避免過長
+        self.prefix_combo.setMaximumWidth(150)
         
-        # 下載路徑
+        prefix_layout.addWidget(prefix_label)
+        prefix_layout.addWidget(self.prefix_combo)
+        prefix_layout.addStretch(1)  # 添加彈性空間，使前綴框不佔滿整行
+        left_settings.addLayout(prefix_layout)
+        
+        settings_layout.addLayout(left_settings)
+        
+        # 右側設定
+        right_settings = QVBoxLayout()
+        
+        # 下載路徑 - 確保完整顯示
         path_layout = QHBoxLayout()
-        path_layout.addWidget(QLabel("下載路徑:"))
-        self.path_input = QLineEdit()
-        self.path_input.setText(self.download_path)
-        self.path_input.setReadOnly(True)
-        path_layout.addWidget(self.path_input)
-        
+        path_label = QLabel("下載路徑:")
+        self.path_edit = QLineEdit()
+        self.path_edit.setText(self.download_path)
+        self.path_edit.setMinimumWidth(300)  # 設定最小寬度
         self.browse_btn = QPushButton("瀏覽...")
         self.browse_btn.clicked.connect(self.browse_path)
+        # 開啟資料夾按鈕
+        self.open_folder_btn = QPushButton("📂 開啟資料夾")
+        self.open_folder_btn.clicked.connect(lambda: self.open_download_folder())
+        path_layout.addWidget(path_label)
+        path_layout.addWidget(self.path_edit, 1)
         path_layout.addWidget(self.browse_btn)
-        options_layout.addLayout(path_layout)
+        path_layout.addWidget(self.open_folder_btn)
+        right_settings.addLayout(path_layout)
         
-        layout.addWidget(options_group)
+        # 合併音視頻選項
+        merge_layout = QHBoxLayout()
+        self.auto_merge_cb = QCheckBox("自動合併音頻和視頻")
+        self.auto_merge_cb.setChecked(True)
         
-        # 下載佇列區域
-        queue_group = QGroupBox("下載佇列")
-        queue_group.setObjectName("download_queue_group")  # 添加對象名稱
-        queue_layout = QVBoxLayout(queue_group)
+        # 新增：最大同時下載數設定
+        max_downloads_label = QLabel("最大同時下載數:")
+        self.max_downloads_spin = QSpinBox()
+        self.max_downloads_spin.setMinimum(1)
+        self.max_downloads_spin.setMaximum(10)
+        self.max_downloads_spin.setValue(self.max_concurrent_downloads)
+        self.max_downloads_spin.valueChanged.connect(self.on_max_downloads_changed)
         
-        # 模擬下載項目
-        self.create_download_item(queue_layout, "樂團現場演唱會.mp4", 65, "01:20", "5.2MB/s", "進行中")
-        self.create_download_item(queue_layout, "實用教學影片.mp4", 32, "--:--", "--", "已暫停")
-        self.create_download_item(queue_layout, "音樂MV合輯.mp4", 0, "--:--", "--", "等待中")
-        self.create_download_item(queue_layout, "私人影片.mp4", 0, "--:--", "--", "錯誤: 年齡限制")
+        merge_layout.addWidget(self.auto_merge_cb)
+        merge_layout.addStretch(1)
+        merge_layout.addWidget(max_downloads_label)
+        merge_layout.addWidget(self.max_downloads_spin)
+        right_settings.addLayout(merge_layout)
         
-        queue_layout.addStretch(1)
-        layout.addWidget(queue_group)
+        # 加入空白區域對齊佈局
+        right_settings.addStretch(1)
         
-        # 總進度資訊
-        total_layout = QHBoxLayout()
-        total_progress_label = QLabel("總進度：0/0 完成 | 總剩餘時間：約 0 分鐘")
-        total_progress_label.setObjectName("total_progress_label")  # 添加ID以便於查找
-        total_layout.addWidget(total_progress_label)
-        total_layout.addStretch(1)
-        layout.addLayout(total_layout)
+        settings_layout.addLayout(right_settings)
         
-        # 連接信號
+        input_layout.addLayout(settings_layout)
+        
+        main_layout.addWidget(input_group)
+        
+        # 創建控制按鈕區 - 添加視覺分隔線和間距
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShadow(QFrame.Sunken)
+        divider.setStyleSheet("background-color: #cccccc;")
+        main_layout.addWidget(divider)
+        main_layout.addSpacing(10)
+        
+        control_layout = QHBoxLayout()
+        
+        # 美化按鈕樣式
+        button_style = """
+        QPushButton {
+            background-color: #0078d7;
+            color: white;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-weight: bold;
+        }
+        QPushButton:hover {
+            background-color: #00adef;
+        }
+        QPushButton:pressed {
+            background-color: #005fa3;
+        }
+        """
+        
+        self.download_btn = QPushButton("開始下載")
+        self.download_btn.setStyleSheet(button_style)
         self.download_btn.clicked.connect(self.start_download)
-        self.pause_btn.clicked.connect(self.pause_all)
+        
+        self.pause_all_btn = QPushButton("暫停所有")
+        self.pause_all_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #f0ad4e"))
+        self.pause_all_btn.clicked.connect(self.pause_all)
+        
+        self.delete_btn = QPushButton("刪除選取")
+        self.delete_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #d9534f"))
         self.delete_btn.clicked.connect(self.delete_selected)
-        self.format_combo.currentIndexChanged.connect(self.on_format_changed)
-        self.resolution_combo.currentIndexChanged.connect(self.update_resolution_availability)
+        
+        # 新增：跳過錯誤任務按鈕
+        self.skip_error_btn = QPushButton("跳過錯誤任務")
+        self.skip_error_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #5cb85c"))
+        self.skip_error_btn.clicked.connect(self.skip_error_tasks)
+        
+        control_layout.addWidget(self.download_btn)
+        control_layout.addWidget(self.pause_all_btn)
+        control_layout.addWidget(self.delete_btn)
+        control_layout.addWidget(self.skip_error_btn)
+        control_layout.addStretch(1)
+        
+        main_layout.addLayout(control_layout)
+        
+        # 創建下載進度區域
+        progress_group = QGroupBox("下載進度")
+        progress_layout = QVBoxLayout(progress_group)
+        
+        # 建立捲動區域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_content = QWidget()
+        self.download_layout = QVBoxLayout(scroll_content)
+        self.download_layout.setAlignment(Qt.AlignTop)
+        scroll_area.setWidget(scroll_content)
+        
+        progress_layout.addWidget(scroll_area)
+        
+        # 總進度部分移至右下角
+        total_progress_layout = QHBoxLayout()
+        total_progress_layout.addStretch(1)
+        
+        total_progress_container = QWidget()
+        total_progress_box = QHBoxLayout(total_progress_container)
+        total_progress_box.setContentsMargins(0, 0, 0, 0)
+        
+        total_label = QLabel("總進度:")
+        self.total_progress = QProgressBar()
+        self.total_progress.setMinimum(0)
+        self.total_progress.setMaximum(100)
+        self.total_progress.setValue(0)
+        self.total_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #cccccc;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #f5f5f5;
+            }
+            QProgressBar::chunk {
+                background-color: #0078d7;
+                border-radius: 5px;
+            }
+        """)
+        
+        total_progress_box.addWidget(total_label)
+        total_progress_box.addWidget(self.total_progress)
+        
+        total_progress_layout.addWidget(total_progress_container)
+        progress_layout.addLayout(total_progress_layout)
+        
+        main_layout.addWidget(progress_group)
+        
+        # 儲存項目字典
+        self.download_items = {}
+        
+        # 添加示範下載項目 (調試用)
+        # self.demo_downloads()
+    
+    def on_max_downloads_changed(self, value):
+        """最大同時下載數變更"""
+        self.max_concurrent_downloads = value
+        
+        # 動態調整輸入框高度
+        line_height = 20
+        padding = 30
+        self.url_edit.setMinimumHeight(value * line_height + padding)
+        self.url_edit.setMaximumHeight(value * line_height + padding)
+        
+        # 更新標籤文字
+        for widget in self.findChildren(QLabel):
+            if "YouTube連結" in widget.text():
+                widget.setText(f"YouTube連結 (每行一個，最多同時下載 {value} 個):")
+                break
+        
+        # 保存設定
+        self.save_settings()
+
+    def on_prefix_changed(self, text):
+        """前綴變更時處理"""
+        if not text or text in self.prefix_history:
+            return
+            
+        # 將新前綴添加到歷史記錄
+        self.prefix_history.insert(0, text)
+        
+        # 限制歷史記錄長度
+        if len(self.prefix_history) > 10:
+            self.prefix_history = self.prefix_history[:10]
+            
+        # 更新下拉選單
+        current_text = text
+        self.prefix_combo.clear()
+        self.prefix_combo.addItems(self.prefix_history)
+        self.prefix_combo.setCurrentText(current_text)
+        
+        # 保存設定
+        self.save_settings()
+
+    def skip_error_tasks(self):
+        """跳過錯誤任務"""
+        error_items = []
+        
+        # 找出所有錯誤任務
+        for filename, item in list(self.download_items.items()):
+            if "錯誤" in item['status_label'].text() or "失敗" in item['status_label'].text():
+                error_items.append(filename)
+        
+        if not error_items:
+            QMessageBox.information(self, "資訊", "沒有發現錯誤任務")
+            return
+            
+        # 刪除錯誤任務
+        for filename in error_items:
+            self.delete_item(filename)
+            
+        QMessageBox.information(self, "完成", f"已跳過 {len(error_items)} 個錯誤任務")
+
+    def open_download_folder(self):
+        """打開下載資料夾"""
+        path = self.path_edit.text()
+        if os.path.exists(path):
+            if sys.platform == 'win32':
+                os.startfile(path)
+            elif sys.platform == 'darwin':  # macOS
+                subprocess.run(['open', path])
+            else:  # linux
+                subprocess.run(['xdg-open', path])
+        else:
+            QMessageBox.warning(self, "資料夾不存在", f"路徑 {path} 不存在，請選擇有效的下載路徑。")
     
     def demo_downloads(self):
         """初始化示範用的下載項目"""
@@ -600,68 +862,159 @@ class DownloadTab(QWidget):
             queue_layout.addStretch(1)
     
     def create_download_item(self, parent_layout, filename, progress, eta, speed, status):
-        """創建下載項目"""
+        """創建下載項目 UI 元件"""
+        # 項目容器
         item_widget = QWidget()
-        item_layout = QHBoxLayout(item_widget)
-        item_layout.setContentsMargins(5, 5, 5, 5)
+        item_layout = QVBoxLayout(item_widget)
+        item_layout.setContentsMargins(10, 10, 10, 10)
         
-        # 狀態圖標
-        status_icon = "▶" if status == "進行中" else "⏸" if status == "已暫停" else "⏳" if status == "等待中" else "❌"
-        icon_label = QLabel(status_icon)
-        icon_label.setMinimumWidth(15)
-        item_layout.addWidget(icon_label)
+        # 背景和陰影效果
+        item_widget.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 8px;
+                border: 1px solid #e0e0e0;
+            }
+        """)
         
-        # 檔案名稱
-        file_label = QLabel(filename)
-        file_label.setMinimumWidth(200)
-        item_layout.addWidget(file_label)
+        # 影片標題和基本信息
+        info_layout = QHBoxLayout()
         
-        # 進度條
+        # YouTube 圖示
+        icon_label = QLabel("▶")
+        icon_label.setStyleSheet("color: #ff0000; font-size: 14pt; font-weight: bold;")
+        info_layout.addWidget(icon_label)
+        
+        # 將顯示名稱從預設檔名改為原影片標題
+        title_label = QLabel(filename)
+        title_label.setStyleSheet("font-weight: bold; color: #0066cc; font-size: 10pt;")
+        info_layout.addWidget(title_label)
+        
+        info_layout.addStretch(1)
+        
+        # 狀態信息
+        status_label = QLabel(status)
+        status_label.setStyleSheet("color: #666666;")
+        info_layout.addWidget(status_label)
+        
+        item_layout.addLayout(info_layout)
+        
+        # 進度條和控制區域
+        progress_layout = QHBoxLayout()
+        
+        # 進度條 - 修改文字顯示方式，確保不被遮擋
         progress_bar = QProgressBar()
         progress_bar.setMinimum(0)
         progress_bar.setMaximum(100)
         progress_bar.setValue(progress)
-        progress_bar.setMinimumWidth(200)
-        progress_bar.setObjectName(f"progress_bar_{filename}")  # 添加唯一對象名稱
-        item_layout.addWidget(progress_bar, 1)  # 進度條佔用更多空間
+        progress_bar.setFormat("%p% 完成")  # 設定進度條文字格式
+        progress_bar.setAlignment(Qt.AlignCenter)  # 文字置中
+        progress_bar.setTextVisible(True)  # 確保文字可見
+        progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #cccccc;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #f5f5f5;
+                color: black;  /* 文字顏色設為黑色，增加對比度 */
+                font-weight: bold;  /* 文字加粗 */
+            }
+            QProgressBar::chunk {
+                background-color: #0078d7;
+                border-radius: 5px;
+            }
+        """)
+        progress_layout.addWidget(progress_bar, 3)  # 進度條佔據更多空間
         
-        # 進度資訊佈局
-        progress_info = QVBoxLayout()
+        # 預估剩餘時間和下載速度
+        info_widget = QWidget()
+        info_box = QHBoxLayout(info_widget)
+        info_box.setContentsMargins(0, 0, 0, 0)
         
-        # 狀態
-        status_label = QLabel(status)
-        status_label.setObjectName(f"status_label_{filename}")  # 添加唯一對象名稱
-        progress_info.addWidget(status_label)
+        eta_label = QLabel(f"ETA: {eta}")
+        eta_label.setStyleSheet("color: #666666; padding-left: 10px;")
+        speed_label = QLabel(f"{speed}")
+        speed_label.setStyleSheet("color: #666666;")
         
-        # 速度
-        speed_label = QLabel(speed)
-        speed_label.setObjectName(f"speed_label_{filename}")  # 添加唯一對象名稱
-        progress_info.addWidget(speed_label)
+        info_box.addWidget(speed_label)
+        info_box.addWidget(eta_label)
         
-        item_layout.addLayout(progress_info)
+        progress_layout.addWidget(info_widget, 1)  # 信息佔據較少空間
         
-        # 操作按鈕區域
-        buttons_layout = QHBoxLayout()
+        # 控制按鈕
+        control_widget = QWidget()
+        control_box = QHBoxLayout(control_widget)
+        control_box.setContentsMargins(0, 0, 0, 0)
         
-        # 暫停/繼續按鈕
-        pause_btn = QPushButton("暫停" if status != "已暫停" else "繼續")
-        pause_btn.setObjectName(f"pause_btn_{filename}")  # 添加唯一對象名稱
-        buttons_layout.addWidget(pause_btn)
+        pause_btn = QPushButton("暫停")
+        pause_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f0ad4e;
+                color: white;
+                border-radius: 3px;
+                padding: 3px 8px;
+            }
+            QPushButton:hover {
+                background-color: #ec971f;
+            }
+        """)
         
-        # 刪除按鈕
-        delete_btn = QPushButton("刪除")
-        delete_btn.setObjectName(f"delete_btn_{filename}")  # 添加唯一對象名稱
-        buttons_layout.addWidget(delete_btn)
+        # 新增：重試按鈕
+        retry_btn = QPushButton("重試")
+        retry_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5cb85c;
+                color: white;
+                border-radius: 3px;
+                padding: 3px 8px;
+            }
+            QPushButton:hover {
+                background-color: #449d44;
+            }
+        """)
+        retry_btn.setVisible(False)  # 預設隱藏，只在錯誤時顯示
         
-        item_layout.addLayout(buttons_layout)
+        delete_btn = QPushButton("❌")
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d9534f;
+                color: white;
+                border-radius: 3px;
+                padding: 3px 8px;
+            }
+            QPushButton:hover {
+                background-color: #c9302c;
+            }
+        """)
         
-        # 添加到父布局
-        parent_layout.addWidget(item_widget)
+        control_box.addWidget(pause_btn)
+        control_box.addWidget(retry_btn)
+        control_box.addWidget(delete_btn)
         
-        # 連接按鈕信號
         pause_btn.clicked.connect(lambda: self.toggle_pause_item(filename))
+        retry_btn.clicked.connect(lambda: self.retry_download(filename))
         delete_btn.clicked.connect(lambda: self.delete_item(filename))
         
+        progress_layout.addWidget(control_widget)
+        
+        item_layout.addLayout(progress_layout)
+        
+        # 儲存項目元件引用
+        self.download_items[filename] = {
+            'widget': item_widget,
+            'progress_bar': progress_bar,
+            'status_label': status_label,
+            'pause_btn': pause_btn,
+            'retry_btn': retry_btn,
+            'delete_btn': delete_btn,
+            'eta_label': eta_label,
+            'speed_label': speed_label,
+            'title_label': title_label,
+            'icon_label': icon_label,
+            'is_paused': False
+        }
+        
+        parent_layout.addWidget(item_widget)
         return item_widget
 
     def toggle_pause_item(self, filename):
@@ -694,114 +1047,284 @@ class DownloadTab(QWidget):
                 icon_label.setText("▶")
             
     def delete_item(self, filename):
-        """刪除特定下載項目"""
-        progress_bar = self.findChild(QProgressBar, f"progress_bar_{filename}")
-        if progress_bar:
-            item_widget = progress_bar.parent()
-            while item_widget and not isinstance(item_widget, QWidget):
-                item_widget = item_widget.parent()
-            
-            if item_widget:
+        """刪除下載項目"""
+        if filename in self.download_items:
+            try:
+                # 取消下載線程
+                if 'thread' in self.download_items[filename]:
+                    thread = self.download_items[filename]['thread']
+                    if hasattr(thread, 'cancel'):
+                        thread.cancel()
+                
+                # 從UI中移除小部件
+                item_widget = self.download_items[filename]['widget']
+                self.download_layout.removeWidget(item_widget)
+                item_widget.setParent(None)
                 item_widget.deleteLater()
-                print(f"已刪除下載項目: {filename}")
+                
+                # 從字典中移除項目
+                del self.download_items[filename]
+                
+                # 更新總進度
+                self.update_total_progress()
+                
+                log(f"已刪除下載項目: {filename}")
+            except Exception as e:
+                log(f"刪除項目時出錯: {str(e)}")
+                QMessageBox.warning(self, "錯誤", f"刪除項目時出錯: {str(e)}")
 
     def start_download(self):
         """開始下載"""
-        # 獲取下載URLs
-        urls_text = self.url_input.toPlainText().strip()
+        # 獲取所有URL
+        urls_text = self.url_edit.toPlainText().strip()
         if not urls_text:
-            log("請輸入YouTube網址")
+            QMessageBox.warning(self, "錯誤", "請輸入至少一個YouTube連結!")
             return
         
-        # 獲取用戶選項
+        # 分割多行URL
+        urls = [url.strip() for url in urls_text.split('\n') if url.strip()]
+        
+        if not urls:
+            QMessageBox.warning(self, "錯誤", "沒有找到有效的YouTube連結!")
+            return
+        
+        # 驗證所有URL
+        invalid_urls = []
+        for url in urls:
+            if not url.startswith(("http://", "https://")) or "youtube.com" not in url and "youtu.be" not in url:
+                invalid_urls.append(url)
+        
+        if invalid_urls:
+            QMessageBox.warning(self, "錯誤", f"發現 {len(invalid_urls)} 個無效連結!\n首個無效連結: {invalid_urls[0]}")
+            return
+        
+        # 檢查下載路徑
+        output_path = self.path_edit.text()
+        if not output_path or not os.path.exists(output_path):
+            QMessageBox.warning(self, "錯誤", "請選擇有效的下載路徑!")
+            return
+        
+        # 獲取設定
         format_option = self.format_combo.currentText()
         resolution = self.resolution_combo.currentText()
-        prefix = self.prefix_input.text()
+        prefix = self.prefix_combo.currentText()
         auto_merge = self.auto_merge_cb.isChecked()
-        output_path = self.path_input.text()
         
-        # 解析多個URLs（每行一個）
-        urls = urls_text.split('\n')
-        valid_urls = [url.strip() for url in urls if url.strip()]
-        
-        if not valid_urls:
-            log("沒有有效的網址")
-            return
-        
-        # 輸出下載資訊
-        log(f"套用設定")
-        log(f"開始下載 {len(valid_urls)} 個影片...")
+        log(f"開始下載 {len(urls)} 個影片...")
         log(f"格式選項: {format_option}")
         log(f"解析度: {resolution}")
         log(f"檔案前綴: {prefix}")
         log(f"自動合併: {'是' if auto_merge else '否'}")
         log(f"下載路徑: {output_path}")
         
-        # 清空下載佇列
-        queue_group = self.findChild(QGroupBox, "download_queue_group")
-        if queue_group:
-            queue_layout = queue_group.layout()
-            
-            # 清空現有下載項目
-            while queue_layout.count():
-                item = queue_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-        
-        # 為每個URL創建下載任務
-        for i, url in enumerate(valid_urls):
-            # 創建臨時檔案名
-            temp_filename = f"YouTube影片_{i+1}.mp4"
-            
-            # 創建下載項目
-            item_widget = self.create_download_item(queue_layout, temp_filename, 0, "--:--", "--", "等待中")
-            
-            # 創建下載線程
-            download_thread = DownloadThread(
-                url=url,
-                output_path=output_path,
-                format_option=format_option,
-                resolution=resolution,
-                prefix=prefix,
-                auto_merge=auto_merge
-            )
-            
-            # 連接信號
-            download_thread.progress.connect(lambda msg, percent, speed, eta, filename=temp_filename: 
-                                            self.update_download_progress(filename, msg, percent, speed, eta))
-            download_thread.finished.connect(lambda success, msg, file_path, filename=temp_filename: 
-                                            self.download_finished(filename, success, msg, file_path))
-            
-            # 儲存線程並啟動
-            self.download_threads[temp_filename] = download_thread
-            download_thread.start()
-        
-        # 更新總進度標籤
-        total_label = self.findChild(QLabel, "total_progress_label")
-        if total_label:
-            total_label.setText(f"總進度：0/{len(valid_urls)} 完成 | 總剩餘時間：計算中...")
-        
-        # 如果有V1.55的SSL問題修復功能，自動應用
+        # 應用SSL修復
+        log("自動套用SSL證書修復...")
         apply_ssl_fix()
         
-        # 如果使用V1.55的檔案名稱處理功能，添加前綴
-        if prefix:
-            log(f"應用檔案名稱前綴: {prefix}")
+        # 套用檔名前綴
+        log(f"應用檔案名稱前綴: {prefix}")
+        
+        # 為每個URL創建下載任務
+        for i, url in enumerate(urls):
+            try:
+                # 創建假的進度項目
+                filename = f"YouTube影片_{i+1}.mp4"
+                self.create_download_item(self.download_layout, filename, 0, "--:--", "--", "準備下載...")
+                
+                # 儲存下載參數到項目
+                self.download_items[filename]['url'] = url
+                self.download_items[filename]['output_path'] = output_path
+                self.download_items[filename]['format_option'] = format_option
+                self.download_items[filename]['resolution'] = resolution
+                self.download_items[filename]['prefix'] = prefix
+                self.download_items[filename]['auto_merge'] = auto_merge
+                
+                # 開始下載
+                self.start_download_for_item(filename, url)
+                
+            except Exception as e:
+                error_msg = f"處理URL時發生錯誤: {str(e)}"
+                log(error_msg)
+                QMessageBox.warning(self, "警告", f"處理URL '{url}' 時出錯: {str(e)}")
+        
+        # 清空輸入框，方便下一次輸入
+        self.url_edit.clear()
+
+    def start_download_for_item(self, filename, url):
+        """為單個項目開始下載"""
+        try:
+            # 獲取下載參數
+            output_path = self.download_items[filename]['output_path']
+            format_option = self.download_items[filename]['format_option']
+            resolution = self.download_items[filename]['resolution']
+            prefix = self.download_items[filename]['prefix']
+            auto_merge = self.download_items[filename]['auto_merge']
+            
+            # 建立下載線程
+            download_thread = DownloadThread(url, output_path, format_option, resolution, prefix, auto_merge)
+            
+            # 連接信號
+            download_thread.progress.connect(
+                lambda msg, percent, speed, eta: self.update_download_progress(filename, msg, percent, speed, eta)
+            )
+            download_thread.finished.connect(
+                lambda success, msg, file_path: self.download_finished(filename, success, msg, file_path)
+            )
+            
+            # 儲存線程引用並啟動
+            self.download_items[filename]['thread'] = download_thread
+            download_thread.start()
+            
+        except Exception as e:
+            self.update_download_progress(filename, f"啟動下載失敗: {str(e)}", 0, "--", "--")
+            log(f"啟動下載線程失敗: {str(e)}")
+
+    def update_video_info(self, message, url):
+        """更新視頻信息"""
+        try:
+            # 如果訊息中包含影片標題信息
+            if "開始下載:" in message and ":" in message:
+                title = message.split(":", 1)[1].strip()
+                
+                # 更新對應下載項目的標題
+                for filename, item in self.download_items.items():
+                    if item.get('url') == url:
+                        item['title_label'].setText(title)
+                        break
+            elif "Error" in message or "錯誤" in message or "失敗" in message:
+                # 處理錯誤情況
+                for filename, item in self.download_items.items():
+                    if item.get('url') == url:
+                        item['status_label'].setText(message)
+                        item['progress_bar'].setStyleSheet("""
+                            QProgressBar::chunk { background-color: #d9534f; }
+                        """)
+                        item['retry_btn'].setVisible(True)
+                        item['icon_label'].setText("❌")
+                        item['icon_label'].setStyleSheet("color: #d9534f; font-size: 14pt;")
+                        break
+        except Exception as e:
+            log(f"更新視頻信息時出錯: {str(e)}")
 
     def update_download_progress(self, filename, message, percent, speed, eta):
         """更新下載進度"""
-        # 查找對應的進度條和標籤
-        progress_bar = self.findChild(QProgressBar, f"progress_bar_{filename}")
-        status_label = self.findChild(QLabel, f"status_label_{filename}")
-        speed_label = self.findChild(QLabel, f"speed_label_{filename}")
-        
-        if progress_bar and status_label and speed_label:
+        if filename in self.download_items:
             # 更新進度條
-            progress_bar.setValue(percent)
+            self.download_items[filename]['progress_bar'].setValue(percent)
             
-            # 更新狀態和速度
-            status_label.setText(f"進行中 - ETA: {eta}")
-            speed_label.setText(speed)
+            # 更新狀態文字
+            self.download_items[filename]['status_label'].setText(message)
+            
+            # 更新下載速度和剩餘時間
+            self.download_items[filename]['speed_label'].setText(f"速度: {speed}")
+            self.download_items[filename]['eta_label'].setText(f"ETA: {eta}")
+            
+            # 設定進度條顏色和文字（根據狀態調整）
+            if "失敗" in message or "錯誤" in message:
+                self.download_items[filename]['progress_bar'].setStyleSheet("""
+                    QProgressBar {
+                        border: 1px solid #cccccc;
+                        border-radius: 5px;
+                        text-align: center;
+                        background-color: #f5f5f5;
+                        color: black;
+                        font-weight: bold;
+                    }
+                    QProgressBar::chunk {
+                        background-color: #d9534f;
+                        border-radius: 5px;
+                    }
+                """)
+                # 顯示重試按鈕
+                self.download_items[filename]['retry_btn'].setVisible(True)
+                # 更新圖示
+                self.download_items[filename]['icon_label'].setText("❌")
+                self.download_items[filename]['icon_label'].setStyleSheet("color: #d9534f; font-size: 14pt;")
+            elif "暫停" in message:
+                self.download_items[filename]['progress_bar'].setStyleSheet("""
+                    QProgressBar {
+                        border: 1px solid #cccccc;
+                        border-radius: 5px;
+                        text-align: center;
+                        background-color: #f5f5f5;
+                        color: black;
+                        font-weight: bold;
+                    }
+                    QProgressBar::chunk {
+                        background-color: #f0ad4e;
+                        border-radius: 5px;
+                    }
+                """)
+                # 更新圖示
+                self.download_items[filename]['icon_label'].setText("⏸")
+                self.download_items[filename]['icon_label'].setStyleSheet("color: #f0ad4e; font-size: 14pt;")
+            elif "完成" in message:
+                self.download_items[filename]['progress_bar'].setStyleSheet("""
+                    QProgressBar {
+                        border: 1px solid #cccccc;
+                        border-radius: 5px;
+                        text-align: center;
+                        background-color: #f5f5f5;
+                        color: black;
+                        font-weight: bold;
+                    }
+                    QProgressBar::chunk {
+                        background-color: #5cb85c;
+                        border-radius: 5px;
+                    }
+                """)
+                # 更新圖示
+                self.download_items[filename]['icon_label'].setText("✓")
+                self.download_items[filename]['icon_label'].setStyleSheet("color: #5cb85c; font-size: 14pt;")
+            elif "合併" in message or "處理" in message:
+                # 特別處理合併和後處理進度
+                self.download_items[filename]['progress_bar'].setStyleSheet("""
+                    QProgressBar {
+                        border: 1px solid #cccccc;
+                        border-radius: 5px;
+                        text-align: center;
+                        background-color: #f5f5f5;
+                        color: black;
+                        font-weight: bold;
+                    }
+                    QProgressBar::chunk {
+                        background-color: #5bc0de;
+                        border-radius: 5px;
+                    }
+                """)
+                # 更新圖示
+                self.download_items[filename]['icon_label'].setText("🔄")
+                self.download_items[filename]['icon_label'].setStyleSheet("color: #5bc0de; font-size: 14pt;")
+                
+                # 設定進度條顯示模式
+                if percent > 0:
+                    # 有明確進度時顯示進度
+                    self.download_items[filename]['progress_bar'].setRange(0, 100)
+                    self.download_items[filename]['progress_bar'].setValue(percent)
+                else:
+                    # 沒有明確進度時顯示不確定模式
+                    self.download_items[filename]['progress_bar'].setRange(0, 0)  # 不確定模式
+            else:
+                self.download_items[filename]['progress_bar'].setStyleSheet("""
+                    QProgressBar {
+                        border: 1px solid #cccccc;
+                        border-radius: 5px;
+                        text-align: center;
+                        background-color: #f5f5f5;
+                        color: black;
+                        font-weight: bold;
+                    }
+                    QProgressBar::chunk {
+                        background-color: #0078d7;
+                        border-radius: 5px;
+                    }
+                """)
+                # 更新圖示
+                self.download_items[filename]['icon_label'].setText("▶")
+                self.download_items[filename]['icon_label'].setStyleSheet("color: #ff0000; font-size: 14pt; font-weight: bold;")
+                
+            # 更新總進度
+            self.update_total_progress()
             
             # 每隔10%記錄一次日誌
             if percent % 10 == 0 and percent > 0:
@@ -818,7 +1341,7 @@ class DownloadTab(QWidget):
             if success:
                 # 更新UI
                 progress_bar.setValue(100)
-                status_label.setText("已完成")
+                status_label.setText("下載完成")  # 更改為更明確的標籤
                 speed_label.setText("--")
                 
                 # 記錄日誌
@@ -851,7 +1374,7 @@ class DownloadTab(QWidget):
     def update_total_progress(self):
         """更新總進度信息"""
         # 計算完成的下載數量
-        total_items = len(self.download_threads) + 1  # +1 因為已完成的不在列表中
+        total_items = len(self.download_items) + 1  # +1 因為已完成的不在列表中
         completed_items = 0
         
         # 查找所有進度條
@@ -870,11 +1393,13 @@ class DownloadTab(QWidget):
 
     def browse_path(self):
         """瀏覽下載路徑"""
-        folder = QFileDialog.getExistingDirectory(self, "選擇下載資料夾", self.download_path)
-        if folder:
-            self.download_path = folder
-            self.path_input.setText(folder)
-            log(f"已選擇下載路徑: {folder}")
+        path = QFileDialog.getExistingDirectory(self, "選擇下載資料夾", self.download_path)
+        if path:
+            self.download_path = path
+            self.path_edit.setText(path)
+            log(f"已選擇下載路徑: {path}")
+            # 保存設定
+            self.save_settings()
 
     def on_format_changed(self, index):
         """當格式選擇改變時更新解析度下拉選單"""
@@ -897,9 +1422,9 @@ class DownloadTab(QWidget):
         log("暫停所有下載任務")
         
         # 暫停所有正在運行的下載線程
-        for filename, thread in list(self.download_threads.items()):
-            if thread.isRunning():
-                thread.cancel()
+        for filename, item in list(self.download_items.items()):
+            if 'thread' in item and item['thread'].isRunning():
+                item['thread'].cancel()
                 log(f"已暫停下載: {filename}")
                 
                 # 更新UI
@@ -916,30 +1441,29 @@ class DownloadTab(QWidget):
                 self.toggle_pause_item(filename)
 
     def delete_selected(self):
-        """刪除選中的下載任務"""
-        log("刪除選中的下載任務")
+        """刪除選中的下載項目"""
+        # 在實際應用中，這裡應該獲取用戶選中的項目
+        # 目前簡單實現為刪除所有已完成或錯誤的項目
+        to_delete = []
         
-        # 在實際應用中，這裡應該獲取被選中的項目
-        # 在此演示中，我們將簡單地刪除第一個項目
+        for filename, item in self.download_items.items():
+            status_text = item['status_label'].text()
+            if "完成" in status_text or "錯誤" in status_text or "失敗" in status_text:
+                to_delete.append(filename)
         
-        # 獲取所有進度條
-        progress_bars = self.findChildren(QProgressBar)
+        if not to_delete:
+            QMessageBox.information(self, "提示", "沒有找到可刪除的項目")
+            return
+            
+        reply = QMessageBox.question(self, "確認刪除", 
+                                   f"確定要刪除 {len(to_delete)} 個項目嗎？",
+                                   QMessageBox.Yes | QMessageBox.No)
         
-        if progress_bars:
-            # 獲取第一個進度條
-            first_progress_bar = progress_bars[0]
-            if first_progress_bar and first_progress_bar.objectName().startswith("progress_bar_"):
-                filename = first_progress_bar.objectName().replace("progress_bar_", "")
-                log(f"刪除下載項目: {filename}")
+        if reply == QMessageBox.Yes:
+            for filename in to_delete:
                 self.delete_item(filename)
-                
-                # 如果有對應的下載線程，取消它
-                if filename in self.download_threads:
-                    self.download_threads[filename].cancel()
-                    self.download_threads[filename].deleteLater()
-                    del self.download_threads[filename]
-        else:
-            log("沒有可刪除的下載項目")
+            
+            QMessageBox.information(self, "完成", f"已刪除 {len(to_delete)} 個項目")
 
     def show_download_complete_dialog(self, filename, file_path):
         """顯示下載完成對話框"""
@@ -1087,74 +1611,6 @@ class DownloadTab(QWidget):
                 self.start_download_for_item(filename, url)
         else:
             QMessageBox.warning(self, "錯誤", "找不到對應的下載項目")
-
-    def start_download_for_item(self, filename, url):
-        """從已有項目重新開始下載"""
-        # 查找對應的進度條和標籤
-        progress_bar = self.findChild(QProgressBar, f"progress_bar_{filename}")
-        status_label = self.findChild(QLabel, f"status_label_{filename}")
-        speed_label = self.findChild(QLabel, f"speed_label_{filename}")
-        
-        if not progress_bar or not status_label:
-            log(f"找不到項目元素: {filename}")
-            return
-            
-        # 重設進度條
-        progress_bar.setValue(0)
-        progress_bar.setStyleSheet("")  # 重設樣式（如果之前是錯誤狀態）
-        
-        # 更新狀態
-        status_label.setText("準備中...")
-        speed_label.setText("--")
-        
-        # 獲取當前設定
-        format_option = self.download_formats.get(filename, self.format_combo.currentText())
-        resolution = self.download_resolutions.get(filename, self.resolution_combo.currentText())
-        prefix = self.prefix_input.text()
-        auto_merge = self.auto_merge_options.get(filename, self.auto_merge_cb.isChecked())
-        output_path = self.path_input.text()
-        
-        # 確保輸出路徑存在
-        if not os.path.exists(output_path):
-            try:
-                os.makedirs(output_path)
-            except Exception as e:
-                log(f"創建輸出目錄失敗: {str(e)}")
-                status_label.setText(f"錯誤: 無法創建輸出目錄")
-                return
-        
-        # 記錄下載信息
-        log(f"重新開始下載 [{filename}]")
-        log(f"  URL: {url}")
-        log(f"  格式: {format_option}")
-        log(f"  解析度: {resolution}")
-        log(f"  前綴: {prefix}")
-        log(f"  自動合併: {auto_merge}")
-        
-        # 創建下載線程
-        download_thread = DownloadThread(
-            url=url,
-            output_path=output_path,
-            format_option=format_option,
-            resolution=resolution,
-            prefix=prefix,
-            auto_merge=auto_merge
-        )
-        
-        # 連接信號
-        download_thread.progress.connect(
-            lambda msg, percent, speed, eta: self.update_download_progress(filename, msg, percent, speed, eta))
-        download_thread.finished.connect(
-            lambda success, msg, file_path: self.download_finished(filename, success, msg, file_path))
-        
-        # 如果有現有線程，先取消並刪除它
-        if filename in self.download_threads:
-            self.download_threads[filename].cancel()
-            self.download_threads[filename].deleteLater()
-        
-        # 儲存線程並啟動
-        self.download_threads[filename] = download_thread
-        download_thread.start()
 
     def show_format_options_dialog(self, filename, parent_dialog=None):
         """顯示格式選項對話框"""
@@ -1874,7 +2330,7 @@ class MainWindow(QMainWindow):
     
     def init_ui(self):
         """初始化用戶界面"""
-        self.setWindowTitle("YouTube下載器 V2.0 - 分頁式界面")
+        self.setWindowTitle("YouTube下載器 V1.61 - 分頁式界面")
         self.setGeometry(100, 100, 900, 700)
         
         # 創建主佈局
@@ -1887,11 +2343,9 @@ class MainWindow(QMainWindow):
         
         # 添加標籤頁
         self.download_tab = DownloadTab(download_path=self.download_path)
-        self.downloaded_files_tab = DownloadedFilesTab()
         self.settings_tab = SettingsTab()
         
         self.tabs.addTab(self.download_tab, "下載任務")
-        self.tabs.addTab(self.downloaded_files_tab, "已下載項目")
         self.tabs.addTab(self.settings_tab, "設定")
         
         layout.addWidget(self.tabs)
@@ -1914,7 +2368,7 @@ def main():
     font.setPointSize(9)
     app.setFont(font)
     
-    log("啟動YouTube下載器 V2.0 - 分頁式界面")
+    log("啟動YouTube下載器 V1.61 - 分頁式界面")
     
     window = MainWindow()
     window.show()
