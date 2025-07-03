@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
     filevers=(1, 6, 3, 0),
-    prodvers=(1, 6, 1, 0),
+    prodvers=(1, 6, 3, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -20,7 +20,7 @@ VSVersionInfo(
          StringStruct(u'LegalCopyright', u'Copyright (c) 2024'),
          StringStruct(u'OriginalFilename', u'YouTube下載器.exe'),
          StringStruct(u'ProductName', u'YouTube 影片下載器'),
-         StringStruct(u'ProductVersion', u'1.6.1')])
+         StringStruct(u'ProductVersion', u'1.6.3')])
     ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]

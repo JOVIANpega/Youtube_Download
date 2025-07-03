@@ -2728,7 +2728,7 @@ def main():
     
     # 設定應用程式資訊
     app.setApplicationName("YouTube下載器")
-    app.setApplicationVersion("2.0")
+    app.setApplicationVersion("1.63")
     app.setOrganizationName("YouTube Downloader")
     
     # 設置應用字體
@@ -2736,7 +2736,7 @@ def main():
     font.setPointSize(9)
     app.setFont(font)
     
-    log("啟動YouTube下載器 V1.61 - 分頁式界面")
+    log("啟動YouTube下載器 V1.63 - 分頁式界面")
     
     window = MainWindow()
     window.show()
