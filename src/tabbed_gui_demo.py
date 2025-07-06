@@ -2626,6 +2626,11 @@ class DownloadTab(QWidget):
 
     def show_error_dialog(self, filename, error_message):
         """顯示錯誤對話框"""
+        # 檢查是否為yt-dlp失敗錯誤
+        if error_message.startswith("YT_DLP_FAILURE:"):
+            self.show_yt_dlp_failure_dialog(filename, error_message)
+            return
+        
         # 如果已經有相同檔名的錯誤對話框，先關閉它
         if filename in self.error_dialogs and self.error_dialogs[filename] is not None:
             try:
@@ -2774,6 +2779,234 @@ class DownloadTab(QWidget):
         
         # 顯示對話框
         dialog.exec()
+
+    def show_yt_dlp_failure_dialog(self, filename, error_message):
+        """顯示yt-dlp失敗的特殊對話框"""
+        # 解析錯誤訊息
+        parts = error_message.split(":", 2)
+        if len(parts) >= 3:
+            platform_name = parts[1]
+            original_error = parts[2]
+        else:
+            platform_name = "未知平台"
+            original_error = error_message
+        
+        # 獲取對應的URL
+        url_input = self.findChild(QLineEdit, f"url_input_{filename}")
+        url = url_input.text() if url_input else "未知URL"
+        
+        # 創建特殊錯誤對話框
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"⚠️ yt-dlp 下載失敗: {filename}")
+        dialog.setMinimumWidth(700)
+        dialog.setMinimumHeight(500)
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #fff3cd;
+            }
+            QLabel { 
+                margin: 5px; 
+                color: #856404;
+            }
+            QGroupBox {
+                font-weight: bold;
+                color: #856404;
+                border: 2px solid #ffeaa7;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+            QPushButton {
+                background-color: #007bff;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+            QPushButton#external_tool_btn {
+                background-color: #28a745;
+                font-size: 12pt;
+                padding: 12px 24px;
+            }
+            QPushButton#external_tool_btn:hover {
+                background-color: #1e7e34;
+            }
+        """)
+        
+        # 設置對話框佈局
+        layout = QVBoxLayout(dialog)
+        
+        # 警告圖標和標題
+        header_layout = QHBoxLayout()
+        warning_icon = QLabel("⚠️")
+        warning_icon.setStyleSheet("font-size: 48pt; color: #ffc107;")
+        header_layout.addWidget(warning_icon)
+        
+        title_layout = QVBoxLayout()
+        error_title = QLabel(f"<h2>⚠️ 無法使用 yt-dlp 成功下載此影片</h2>")
+        error_title.setStyleSheet("color: #856404; font-weight: bold;")
+        title_layout.addWidget(error_title)
+        
+        subtitle = QLabel(f"<h4>平台: {platform_name} | 檔案: {filename}</h4>")
+        subtitle.setStyleSheet("color: #856404;")
+        title_layout.addWidget(subtitle)
+        
+        header_layout.addLayout(title_layout)
+        header_layout.addStretch(1)
+        layout.addLayout(header_layout)
+        
+        # 分隔線
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setStyleSheet("background-color: #ffeaa7;")
+        layout.addWidget(separator)
+        
+        # 主要訊息
+        main_message = QLabel(
+            "<h3>你可以試試使用外部下載工具</h3>"
+            "<p>由於網站反爬蟲機制或技術限制，yt-dlp 無法下載此影片。</p>"
+            "<p>我們推薦使用以下外部工具作為替代方案：</p>"
+        )
+        main_message.setWordWrap(True)
+        main_message.setStyleSheet("color: #856404; font-size: 11pt;")
+        layout.addWidget(main_message)
+        
+        # 外部工具選項
+        tools_group = QGroupBox("🌐 推薦的外部下載工具")
+        tools_layout = QVBoxLayout(tools_group)
+        
+        # Twitter Video Downloader
+        twitter_section = QHBoxLayout()
+        twitter_icon = QLabel("🐦")
+        twitter_icon.setStyleSheet("font-size: 24pt;")
+        twitter_section.addWidget(twitter_icon)
+        
+        twitter_info = QVBoxLayout()
+        twitter_title = QLabel("<b>Twitter Video Downloader</b>")
+        twitter_title.setStyleSheet("color: #856404; font-size: 12pt;")
+        twitter_info.addWidget(twitter_title)
+        
+        twitter_desc = QLabel("專門用於下載 Twitter/X.com 影片的線上工具")
+        twitter_desc.setStyleSheet("color: #856404; font-size: 10pt;")
+        twitter_info.addWidget(twitter_desc)
+        
+        twitter_section.addLayout(twitter_info)
+        twitter_section.addStretch(1)
+        
+        # 打開外部工具按鈕
+        external_tool_btn = QPushButton("🌐 打開 Twitter Video Downloader")
+        external_tool_btn.setObjectName("external_tool_btn")
+        
+        # 根據平台決定URL
+        if platform_name in ["X", "Twitter"]:
+            # 直接帶入原網址
+            external_url = f"https://twittervideodownloader.com/?url={url}"
+        else:
+            # 其他平台只打開主頁
+            external_url = "https://twittervideodownloader.com/"
+        
+        external_tool_btn.clicked.connect(lambda: self.open_external_downloader(external_url))
+        twitter_section.addWidget(external_tool_btn)
+        
+        tools_layout.addLayout(twitter_section)
+        
+        # 其他工具選項
+        other_tools_label = QLabel(
+            "<p><b>其他推薦工具：</b></p>"
+            "<p>• <a href='https://snapinsta.app/'>SnapInsta</a> - Instagram 影片下載</p>"
+            "<p>• <a href='https://tikmate.online/'>TikMate</a> - TikTok 影片下載</p>"
+            "<p>• <a href='https://www.y2mate.com/'>Y2Mate</a> - YouTube 影片下載</p>"
+            "<p>• <a href='https://www.4kdownload.com/'>4K Video Downloader</a> - 多平台下載</p>"
+        )
+        other_tools_label.setOpenExternalLinks(True)
+        other_tools_label.setStyleSheet("color: #856404; font-size: 10pt;")
+        tools_layout.addWidget(other_tools_label)
+        
+        layout.addWidget(tools_group)
+        
+        # 技術詳情
+        tech_group = QGroupBox("🔧 技術詳情")
+        tech_layout = QVBoxLayout(tech_group)
+        
+        # 原始錯誤訊息
+        error_label = QTextEdit()
+        error_label.setPlainText(f"原始錯誤: {original_error}")
+        error_label.setReadOnly(True)
+        error_label.setMaximumHeight(100)
+        error_label.setStyleSheet("""
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 8px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 9pt;
+                color: #856404;
+            }
+        """)
+        tech_layout.addWidget(error_label)
+        
+        # URL
+        url_label = QLabel(f"<b>URL:</b> {url}")
+        url_label.setWordWrap(True)
+        url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        tech_layout.addWidget(url_label)
+        
+        layout.addWidget(tech_group)
+        
+        # 按鈕區域
+        buttons_layout = QHBoxLayout()
+        
+        # 重試按鈕
+        retry_button = QPushButton("🔄 重試下載")
+        retry_button.clicked.connect(lambda: self.retry_download(filename, dialog))
+        buttons_layout.addWidget(retry_button)
+        
+        # 更改格式按鈕
+        change_format_button = QPushButton("⚙️ 更改格式選項")
+        change_format_button.clicked.connect(lambda: self.show_format_options_dialog(filename, dialog))
+        buttons_layout.addWidget(change_format_button)
+        
+        # 保存錯誤日誌按鈕
+        save_log_button = QPushButton("📝 保存錯誤日誌")
+        format_option = self.download_formats.get(filename, "未知")
+        resolution = self.download_resolutions.get(filename, "未知")
+        output_path = self.download_path
+        save_log_button.clicked.connect(lambda: self.save_error_log(filename, error_message, url, format_option, resolution, output_path))
+        buttons_layout.addWidget(save_log_button)
+        
+        # 關閉按鈕
+        close_button = QPushButton("❌ 關閉")
+        close_button.clicked.connect(dialog.close)
+        buttons_layout.addWidget(close_button)
+        
+        layout.addLayout(buttons_layout)
+        
+        # 保存對話框引用
+        self.error_dialogs[filename] = dialog
+        
+        # 顯示對話框
+        dialog.exec()
+
+    def open_external_downloader(self, url):
+        """打開外部下載工具"""
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            log(f"已打開外部下載工具: {url}")
+        except Exception as e:
+            log(f"打開外部下載工具失敗: {str(e)}")
+            QMessageBox.warning(self, "錯誤", f"無法打開瀏覽器: {str(e)}")
 
     def retry_download(self, filename, dialog=None):
         """重試下載"""

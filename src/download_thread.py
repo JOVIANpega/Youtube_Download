@@ -719,6 +719,22 @@ class DownloadThread(QThread):
         """根據平台和錯誤類型生成特定的錯誤訊息"""
         error_lower = error.lower()
         
+        # 檢測是否為yt-dlp執行失敗
+        yt_dlp_failure_keywords = [
+            "unsupported url", "no video formats found", "video unavailable",
+            "private video", "deleted video", "not found", "does not exist",
+            "access denied", "forbidden", "403", "404", "not authorized",
+            "protected", "restricted", "age restricted", "sign in required",
+            "login required", "authentication required", "rate limit",
+            "too many requests", "blocked", "geoblocked", "region restricted"
+        ]
+        
+        is_yt_dlp_failure = any(keyword in error_lower for keyword in yt_dlp_failure_keywords)
+        
+        # 如果是yt-dlp失敗，返回特殊錯誤訊息
+        if is_yt_dlp_failure:
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
+        
         # 通用錯誤處理
         if "unsupported url" in error_lower or "no video formats found" in error_lower:
             if platform_name in ["Instagram", "Facebook", "TikTok", "抖音", "X"]:
