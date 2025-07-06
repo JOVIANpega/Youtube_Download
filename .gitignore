@@ -26,6 +26,12 @@ MANIFEST
 *.spec
 build/
 dist/
+build_temp/
+*.toc
+*.pyz
+*.pkg
+warn-*.txt
+xref-*.html
 
 # Installer logs
 pip-log.txt
@@ -99,3 +105,16 @@ BACKUP/
 
 # 暫存檔案
 TEMP/ 
+
+# 其他臨時檔案
+*.pyc
+*.pyo
+*.pyd
+*~
+._*
+*.lock
+*.orig
+*.rej
+*.db
+*.sqlite
+*.sqlite3 
