@@ -1,17 +1,78 @@
-# Python編譯檔案
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# 發佈和打包檔案
-dist/
+*.so
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# 虛擬環境
-venv/
+# PyInstaller
+*.manifest
+*.spec
+build/
+dist/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+*.iws
+.idea/
+out/
+
+# VS Code
+.vscode/
+*.code-workspace
+.history/
+
+# Environment
+.env
+.venv
 env/
+venv/
 ENV/
+env.bak/
+venv.bak/
+
+# Project specific
+user_preferences.json
+downloads/
+logs/
+*.log
+cookies.txt
 
 # IDE相關檔案
 .idea/
@@ -22,9 +83,6 @@ ENV/
 # 系統檔案
 .DS_Store
 Thumbs.db
-
-# 日誌檔案
-*.log
 
 # 本地配置檔案
 *.local.py
@@ -38,3 +96,6 @@ BACKUP/
 # 執行檔
 *.exe
 *.spec 
+
+# 暫存檔案
+TEMP/ 

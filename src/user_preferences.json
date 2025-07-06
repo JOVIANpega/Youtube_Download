@@ -1,6 +1,6 @@
 {
     "download_path": "D:/DEL_TEST",
-    "default_format": "影片",
+    "default_format": "最高品質",
     "default_resolution": "自動選擇最佳",
     "extract_audio_only": false,
     "window_width": 1000,
@@ -30,22 +30,27 @@
     "filename_template": "%(title)s.%(ext)s",
     "add_timestamp": false,
     "sanitize_filename": true,
-    "max_concurrent_downloads": 2,
+    "max_concurrent_downloads": 3,
     "prefix_history": [
+        "TEST-",
         "Per Nice-",
         "Per Best3-",
         "Per Best2-",
         "Per Best-",
         "Per-",
-        "Test-",
-        "Test-h",
-        "Test-ht",
-        "Test-htt",
-        "Test-http",
-        "Test-https",
-        "Test-https:",
-        "Test-https:/",
-        "Test-https://",
-        "Test-https://w"
-    ]
+        ""
+    ],
+    "show_notification": true,
+    "play_sound": true,
+    "auto_open_folder": false,
+    "file_exists_action": "rename",
+    "audio_quality": "192 kbps",
+    "prefer_av1": false,
+    "fallback_to_webm": true,
+    "auto_merge": true,
+    "default_prefix": "TEST-",
+    "truncate_filename": true,
+    "max_filename_length": 200,
+    "create_subfolders": false,
+    "organize_by_date": false
 }
