@@ -28,24 +28,9 @@ import yt_dlp
 import json
 import datetime
 
-# 設置日誌函數
-def log(message):
-    """輸出日誌"""
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_message = f"[{timestamp}] {message}"
-    print(log_message)
-    
-    # 保存到日誌檔案
-    try:
-        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-            
-        log_file = os.path.join(log_dir, f"downloader_{datetime.datetime.now().strftime('%Y-%m-%d')}.log")
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(log_message + "\n")
-    except Exception as e:
-        print(f"無法寫入日誌檔案: {str(e)}")
+# 導入工具函數
+from utils import log, get_system_info, create_error_log, apply_ssl_fix, get_supported_platforms
+from src.utils import identify_platform
 
 def get_system_info():
     """獲取系統信息"""
@@ -177,6 +162,7 @@ class DownloadThread(QThread):
     """下載線程類"""
     progress = Signal(str, int, str, str)  # 訊息, 進度百分比, 速度, ETA
     finished = Signal(bool, str, str)  # 成功/失敗, 訊息, 檔案路徑
+    platform_detected = Signal(str, str)  # 平台名稱, URL
     
     def __init__(self, url, output_path, format_option, resolution, prefix, auto_merge):
         super().__init__()
@@ -200,6 +186,7 @@ class DownloadThread(QThread):
         self.stall_check_timer = QTimer()  # 添加定時器檢查下載是否卡住
         self.stall_check_timer.timeout.connect(self.check_download_stall)
         self.stall_check_timer.start(5000)  # 每5秒檢查一次
+        self.platform_info = None  # 存儲平台信息
     
     def run(self):
         """執行下載任務"""
@@ -212,6 +199,20 @@ class DownloadThread(QThread):
             
             # 嘗試套用SSL修復
             apply_ssl_fix()
+            
+            # 識別平台
+            platform_info = identify_platform(self.url)
+            platform_name = platform_info["name"]
+            
+            # 發送平台識別信號
+            self.platform_detected.emit(platform_name, self.url)
+            
+            # 檢查是否為未知平台
+            if platform_name == "未知":
+                raise Exception("無法辨識或不支援此平台，請確認URL格式是否正確")
+            
+            # 在日誌中顯示平台信息
+            log(f"識別到平台: {platform_name}, URL: {self.url}")
             
             # 在日誌中明確顯示使用的前綴
             log(f"應用檔案名稱前綴: {self.prefix}")
@@ -351,6 +352,16 @@ class DownloadThread(QThread):
                             log(f"找不到 cookies 檔案: {cookies_file}")
         except Exception as e:
             log(f"讀取 cookies 設定失敗: {str(e)}")
+        
+        # 根據平台特定的設定
+        format_str = 'bestvideo+bestaudio/best'  # 預設格式
+        
+        # 如果平台信息已獲取，使用平台特定的格式設定
+        if self.platform_info and self.platform_info["name"] != "未知":
+            # 使用平台特定的下載選項
+            platform_options = self.platform_info["download_options"]
+            if "format" in platform_options:
+                format_str = platform_options["format"]
         
         # 根據格式選擇設定
         if "最高品質" in self.format_option:
@@ -788,6 +799,7 @@ class DownloadTab(QWidget):
         self.prefix_history = ["Per Nice-", "Per Best3-", "Per Best2-", "Per Best-", "Per-"]  # 預設前綴選項
         self.error_dialogs = {}  # 添加錯誤對話框字典，用於跟踪當前顯示的錯誤對話框
         self.format_dialogs = {}  # 添加格式選項對話框字典，用於跟踪當前顯示的格式選項對話框
+        self.supported_platforms = get_supported_platforms()  # 獲取支援的平台列表
         self.load_settings()  # 載入設定
         self.init_ui()
         # 初始化完成
@@ -918,14 +930,14 @@ class DownloadTab(QWidget):
         main_layout = QVBoxLayout(self)
         
         # 創建頂部輸入區域
-        input_group = QGroupBox("輸入YouTube連結")
+        input_group = QGroupBox("輸入影片連結")
         input_layout = QVBoxLayout(input_group)
         
         # URL輸入框 - 根據最大同時下載數動態調整高度
         url_layout = QVBoxLayout()
-        url_label = QLabel(f"YouTube連結 (每行一個，最多同時下載 {self.max_concurrent_downloads} 個):")
+        url_label = QLabel(f"影片連結 (每行一個，最多同時下載 {self.max_concurrent_downloads} 個):")
         self.url_edit = QTextEdit()
-        self.url_edit.setPlaceholderText("在這裡貼上一個或多個YouTube視頻連結，每行一個")
+        self.url_edit.setPlaceholderText("在這裡貼上一個或多個影片連結，每行一個\n支援的平台: YouTube, TikTok/抖音, Facebook, Instagram, Bilibili, X(Twitter)")
         
         # 動態調整高度 - 根據最大同時下載數
         line_height = 20  # 預估每行高度
@@ -941,8 +953,23 @@ class DownloadTab(QWidget):
         self.title_label.setWordWrap(True)
         self.title_label.setStyleSheet("font-weight: bold; color: #0066cc; margin: 5px 0;")
         
+        # 新增：支援平台提示
+        platform_layout = QHBoxLayout()
+        platform_label = QLabel("支援平台:")
+        platform_label.setStyleSheet("font-weight: bold;")
+        platform_layout.addWidget(platform_label)
+        
+        # 添加支援的平台列表
+        for platform in self.supported_platforms:
+            platform_item = QLabel(platform)
+            platform_item.setStyleSheet("color: #0066cc; margin-right: 10px;")
+            platform_layout.addWidget(platform_item)
+        
+        platform_layout.addStretch(1)
+        
         input_layout.addLayout(url_layout)
         input_layout.addWidget(self.title_label)
+        input_layout.addLayout(platform_layout)
         
         # 設定區域
         settings_layout = QHBoxLayout()
@@ -1020,7 +1047,7 @@ class DownloadTab(QWidget):
         
         # 合併音視頻選項
         merge_layout = QHBoxLayout()
-        self.auto_merge_cb = QCheckBox("自動合併音頻和視頻")
+        self.auto_merge_cb = QCheckBox("自動合併音頻和視頻 (高畫質影片將始終合併)")
         self.auto_merge_cb.setChecked(True)
         
         # 新增：最大同時下載數設定
@@ -1169,8 +1196,8 @@ class DownloadTab(QWidget):
         
         # 更新標籤文字
         for widget in self.findChildren(QLabel):
-            if "YouTube連結" in widget.text():
-                widget.setText(f"YouTube連結 (每行一個，最多同時下載 {value} 個):")
+            if "影片連結" in widget.text():
+                widget.setText(f"影片連結 (每行一個，最多同時下載 {value} 個):")
                 break
         
         # 保存設定
@@ -1287,6 +1314,11 @@ class DownloadTab(QWidget):
         item_layout = QVBoxLayout(item_widget)
         item_layout.setContentsMargins(10, 10, 10, 10)
         
+        # 如果parent_layout是None，創建一個新的佈局
+        if parent_layout is None:
+            parent_layout = QVBoxLayout()
+            parent_layout.setContentsMargins(0, 0, 0, 0)
+        
         # 背景和陰影效果
         item_widget.setStyleSheet("""
             QWidget {
@@ -1299,13 +1331,15 @@ class DownloadTab(QWidget):
         # 影片標題和基本信息
         info_layout = QHBoxLayout()
         
-        # YouTube 圖示
+        # 平台圖示（預設為通用圖示）
         icon_label = QLabel("▶")
-        icon_label.setStyleSheet("color: #ff0000; font-size: 14pt; font-weight: bold;")
+        icon_label.setObjectName(f"icon_{filename}")
+        icon_label.setStyleSheet("color: #0066cc; font-size: 14pt; font-weight: bold;")
         info_layout.addWidget(icon_label)
         
         # 將顯示名稱從預設檔名改為原影片標題
         title_label = QLabel(filename)
+        title_label.setObjectName(f"title_{filename}")
         title_label.setStyleSheet("font-weight: bold; color: #0066cc; font-size: 10pt;")
         info_layout.addWidget(title_label)
         
@@ -1313,6 +1347,7 @@ class DownloadTab(QWidget):
         
         # 狀態信息
         status_label = QLabel(status)
+        status_label.setObjectName(f"status_{filename}")
         status_label.setStyleSheet("color: #666666;")
         info_layout.addWidget(status_label)
         
@@ -1323,6 +1358,7 @@ class DownloadTab(QWidget):
         
         # 進度條 - 修改文字顯示方式，確保不被遮擋
         progress_bar = QProgressBar()
+        progress_bar.setObjectName(f"progress_{filename}")
         progress_bar.setMinimum(0)
         progress_bar.setMaximum(100)
         progress_bar.setValue(progress)
@@ -1351,8 +1387,10 @@ class DownloadTab(QWidget):
         info_box.setContentsMargins(0, 0, 0, 0)
         
         eta_label = QLabel(f"ETA: {eta}")
+        eta_label.setObjectName(f"eta_{filename}")
         eta_label.setStyleSheet("color: #666666; padding-left: 10px;")
         speed_label = QLabel(f"{speed}")
+        speed_label.setObjectName(f"speed_{filename}")
         speed_label.setStyleSheet("color: #666666;")
         
         info_box.addWidget(speed_label)
@@ -1366,6 +1404,7 @@ class DownloadTab(QWidget):
         control_box.setContentsMargins(0, 0, 0, 0)
         
         pause_btn = QPushButton("暫停")
+        pause_btn.setObjectName(f"pause_btn_{filename}")
         pause_btn.setStyleSheet("""
             QPushButton {
                 background-color: #f0ad4e;
@@ -1380,6 +1419,7 @@ class DownloadTab(QWidget):
         
         # 新增：重試按鈕
         retry_btn = QPushButton("重試")
+        retry_btn.setObjectName(f"retry_btn_{filename}")
         retry_btn.setStyleSheet("""
             QPushButton {
                 background-color: #5cb85c;
@@ -1394,12 +1434,14 @@ class DownloadTab(QWidget):
         retry_btn.setVisible(False)  # 預設隱藏，只在錯誤時顯示
         
         delete_btn = QPushButton("❌")
+        delete_btn.setObjectName(f"delete_btn_{filename}")
         delete_btn.setStyleSheet("""
             QPushButton {
                 background-color: #d9534f;
                 color: white;
                 border-radius: 3px;
                 padding: 3px 8px;
+                font-size: 12pt;
             }
             QPushButton:hover {
                 background-color: #c9302c;
@@ -1537,7 +1579,7 @@ class DownloadTab(QWidget):
         urls = [url.strip() for url in urls if url.strip()]
         
         if not urls:
-            QMessageBox.warning(self, "錯誤", "請輸入至少一個YouTube連結")
+            QMessageBox.warning(self, "錯誤", "請輸入至少一個影片連結")
             return
             
         # 檢查下載路徑是否存在
@@ -1574,11 +1616,38 @@ class DownloadTab(QWidget):
         
         # 為每個URL創建下載項目
         for i, url in enumerate(urls_to_download):
-            # 創建唯一的檔案名
-            filename = f"YouTube影片_{len(self.download_threads) + i + 1}.mp4"
+            # 識別平台
+            platform_info = identify_platform(url)
+            platform_name = platform_info["name"]
+            
+            # 創建唯一的檔案名，包含平台信息
+            if platform_name == "未知":
+                filename = f"未知來源影片_{len(self.download_threads) + i + 1}.mp4"
+            else:
+                filename = f"{platform_name}影片_{len(self.download_threads) + i + 1}.mp4"
+            
+            # 創建下載項目容器
+            item_container = QFrame()
+            item_container.setObjectName(f"download_item_{filename}")
+            item_container.setFrameStyle(QFrame.StyledPanel)
+            item_container.setStyleSheet("""
+                QFrame {
+                    background-color: white;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 8px;
+                    margin: 2px;
+                }
+            """)
+            
+            # 為容器創建佈局
+            container_layout = QVBoxLayout(item_container)
+            container_layout.setContentsMargins(0, 0, 0, 0)
             
             # 創建下載項目
-            self.create_download_item(self.download_layout, filename, 0, "--", "--", "準備中...")
+            self.create_download_item(container_layout, filename, 0, "--", "--", "準備中...")
+            
+            # 將容器添加到下載佈局
+            self.download_layout.addWidget(item_container)
             
             # 創建URL輸入框（隱藏）
             url_input = QLineEdit()
@@ -1597,58 +1666,106 @@ class DownloadTab(QWidget):
         self.update_total_progress()
 
     def start_download_for_item(self, filename, url):
-        """為特定項目啟動下載"""
-        # 檢查是否已經有下載線程在運行
-        if filename in self.download_threads and self.download_threads[filename].isRunning():
-            log(f"下載線程已存在: {filename}")
-            return
+        """為特定項目啟動下載線程"""
+        try:
+            # 獲取當前選擇的格式和解析度
+            format_option = self.format_combo.currentText()
+            resolution = self.resolution_combo.currentText()
             
-        # 獲取當前格式和解析度設定
-        format_option = self.format_combo.currentText()
-        resolution = self.resolution_combo.currentText()
-        
-        # 保存格式和解析度選擇
-        self.download_formats[filename] = format_option
-        self.download_resolutions[filename] = resolution
-        
-        # 獲取前綴
-        prefix = self.prefix_combo.currentText()
-        
-        # 獲取是否自動合併
-        auto_merge = self.auto_merge_cb.isChecked()
-        
-        # 創建下載線程
-        download_thread = DownloadThread(
-            url, 
-            self.download_path, 
-            format_option, 
-            resolution, 
-            prefix,
-            auto_merge
-        )
-        
-        # 連接信號
-        download_thread.progress.connect(
-            lambda message, percent, speed, eta: self.update_download_progress(filename, message, percent, speed, eta)
-        )
-        
-        # 使用 lambda 函數來傳遞 filename 參數
-        download_thread.finished.connect(
-            lambda success, msg, file_path: self.download_finished(filename, success, msg, file_path)
-        )
-        
-        # 保存線程
-        self.download_threads[filename] = download_thread
-        
-        # 啟動線程
-        download_thread.start()
-        
-        log(f"已啟動下載線程: {filename}, URL: {url}")
-        log(f"格式選項: {format_option}")
-        log(f"解析度: {resolution}")
-        log(f"檔案前綴: {prefix}")
-        log(f"自動合併: {'是' if auto_merge else '否'}")
-        log(f"下載路徑: {self.download_path}")
+            # 獲取前綴
+            prefix = self.prefix_combo.currentText() if self.prefix_combo.currentText() else ""
+            
+            # 獲取自動合併設定
+            auto_merge = self.auto_merge_cb.isChecked()
+            
+            # 保存該項目的格式和解析度設定
+            self.download_formats[filename] = format_option
+            self.download_resolutions[filename] = resolution
+            
+            # 保存URL和平台信息
+            self.download_items[filename]['url'] = url
+            self.download_items[filename]['platform_info'] = identify_platform(url)
+            
+            # 創建下載線程
+            thread = DownloadThread(
+                url,
+                self.download_path,
+                format_option,
+                resolution,
+                prefix,
+                auto_merge
+            )
+            
+            # 連接信號
+            thread.progress.connect(lambda message, percent, speed, eta: 
+                                   self.update_download_progress(filename, message, percent, speed, eta))
+            thread.finished.connect(lambda success, message, file_path: 
+                                   self.download_finished(filename, success, message, file_path))
+            thread.platform_detected.connect(lambda platform, url, f=filename: 
+                                           self.on_platform_detected(f, platform, url))
+            
+            # 保存線程
+            self.download_threads[filename] = thread
+            
+            # 啟動線程
+            thread.start()
+            
+            # 添加下載監控
+            self.add_download_monitor(filename)
+            
+            log(f"已啟動下載線程: {filename}, URL: {url}")
+        except Exception as e:
+            log(f"啟動下載線程失敗: {str(e)}")
+            self.show_error_dialog(filename, f"啟動下載失敗: {str(e)}")
+
+    def on_platform_detected(self, filename, platform, url):
+        """處理平台檢測結果"""
+        try:
+            if filename in self.download_items:
+                # 更新平台信息
+                self.download_items[filename]['platform_info'] = {'name': platform}
+                
+                # 設置平台特定的圖標和顏色
+                icon_label = self.download_items[filename]['icon_label']
+                title_label = self.download_items[filename]['title_label']
+                
+                if platform == "YouTube":
+                    icon_label.setText("▶")
+                    icon_label.setStyleSheet("color: #ff0000; font-size: 14pt; font-weight: bold;")
+                elif platform == "TikTok" or platform == "抖音":
+                    icon_label.setText("🎵")
+                    icon_label.setStyleSheet("color: #000000; font-size: 14pt; font-weight: bold;")
+                elif platform == "Facebook":
+                    icon_label.setText("📘")
+                    icon_label.setStyleSheet("color: #1877f2; font-size: 14pt; font-weight: bold;")
+                elif platform == "Instagram":
+                    icon_label.setText("📷")
+                    icon_label.setStyleSheet("color: #e4405f; font-size: 14pt; font-weight: bold;")
+                elif platform == "Bilibili":
+                    icon_label.setText("📺")
+                    icon_label.setStyleSheet("color: #00a1d6; font-size: 14pt; font-weight: bold;")
+                elif platform == "X":
+                    icon_label.setText("🐦")
+                    icon_label.setStyleSheet("color: #1da1f2; font-size: 14pt; font-weight: bold;")
+                elif platform == "未知":
+                    icon_label.setText("❓")
+                    icon_label.setStyleSheet("color: #999999; font-size: 14pt; font-weight: bold;")
+                    title_label.setStyleSheet("font-weight: bold; color: #999999; font-size: 10pt;")
+                else:
+                    icon_label.setText("▶")
+                    icon_label.setStyleSheet("color: #0066cc; font-size: 14pt; font-weight: bold;")
+                
+                # 更新初始狀態顯示
+                if platform == "未知":
+                    self.download_items[filename]['status_label'].setText("未知來源影片下載中...")
+                    self.download_items[filename]['title_label'].setText(f"未知來源影片_{filename}")
+                else:
+                    self.download_items[filename]['status_label'].setText(f"{platform}影片下載中...")
+                    self.download_items[filename]['title_label'].setText(f"{platform}影片_{filename}")
+                
+                log(f"檢測到平台: {platform}, 檔案: {filename}")
+        except Exception as e:
+            log(f"處理平台檢測時出錯: {str(e)}")
 
     def update_video_info(self, message, url):
         """更新視頻信息"""
@@ -1660,13 +1777,30 @@ class DownloadTab(QWidget):
                 # 更新對應下載項目的標題
                 for filename, item in self.download_items.items():
                     if item.get('url') == url:
-                        item['title_label'].setText(title)
+                        # 獲取平台信息
+                        platform_name = "未知"
+                        if 'platform_info' in item:
+                            platform_name = item['platform_info']['name']
+                        
+                        # 格式化標題：平台名稱 + 影片標題
+                        if platform_name == "未知":
+                            formatted_title = f"未知來源: {title}"
+                        else:
+                            formatted_title = f"{platform_name}: {title}"
+                        
+                        item['title_label'].setText(formatted_title)
                         break
             elif "Error" in message or "錯誤" in message or "失敗" in message:
                 # 處理錯誤情況
                 for filename, item in self.download_items.items():
                     if item.get('url') == url:
-                        item['status_label'].setText(message)
+                        # 獲取平台信息
+                        platform_name = "未知"
+                        if 'platform_info' in item:
+                            platform_name = item['platform_info']['name']
+                        
+                        error_status = f"{platform_name}影片下載失敗 ❌"
+                        item['status_label'].setText(error_status)
                         item['progress_bar'].setStyleSheet("""
                             QProgressBar::chunk { background-color: #d9534f; }
                         """)
@@ -1693,9 +1827,32 @@ class DownloadTab(QWidget):
             # 更新狀態文字
             try:
                 if message is not None:
-                    self.download_items[filename]['status_label'].setText(message)
+                    # 獲取平台信息
+                    platform_name = "未知"
+                    if filename in self.download_items and 'platform_info' in self.download_items[filename]:
+                        platform_name = self.download_items[filename]['platform_info']['name']
+                    
+                    # 格式化狀態消息
+                    if "下載中" in message or "downloading" in message.lower():
+                        status_text = f"{platform_name}影片下載中: {percent}%"
+                    elif "處理中" in message or "合併" in message or "merging" in message.lower() or "processing" in message.lower():
+                        status_text = f"{platform_name}影片處理中: {percent}%"
+                    elif "已完成" in message or "完成" in message or "finished" in message.lower():
+                        status_text = f"{platform_name}影片已完成 ✅"
+                    elif "失敗" in message or "錯誤" in message or "error" in message.lower() or "failed" in message.lower():
+                        status_text = f"{platform_name}影片下載失敗 ❌"
+                    elif "獲取" in message or "extracting" in message.lower():
+                        status_text = f"{platform_name}影片獲取資訊中..."
+                    else:
+                        status_text = message
+                    
+                    self.download_items[filename]['status_label'].setText(status_text)
                 else:
-                    self.download_items[filename]['status_label'].setText("下載中...")
+                    # 獲取平台信息
+                    platform_name = "未知"
+                    if filename in self.download_items and 'platform_info' in self.download_items[filename]:
+                        platform_name = self.download_items[filename]['platform_info']['name']
+                    self.download_items[filename]['status_label'].setText(f"{platform_name}影片下載中...")
             except Exception as e:
                 log(f"更新狀態文字時發生錯誤: {str(e)}")
             
@@ -1881,12 +2038,40 @@ class DownloadTab(QWidget):
         
         # 根據下載結果更新狀態
         if success:
-            # 下載成功
+            # 下載成功 - 顯示完成狀態
             progress_bar.setValue(100)
-            status_label.setText("已完成")
+            
+            # 獲取平台信息
+            platform_name = "未知"
+            if filename in self.download_items and 'platform_info' in self.download_items[filename]:
+                platform_name = self.download_items[filename]['platform_info']['name']
+            
+            status_label.setText(f"{platform_name}影片已完成 ✅")
             status_label.setStyleSheet("color: green; font-weight: bold;")
             eta_label.setText("完成")
             speed_label.setText("--")
+            
+            # 更新圖標為成功狀態
+            icon_label = download_item.findChild(QLabel, f"icon_{filename}")
+            if icon_label:
+                icon_label.setText("✅")
+                icon_label.setStyleSheet("color: #5cb85c; font-size: 14pt; font-weight: bold;")
+            
+            # 更新進度條為綠色
+            progress_bar.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #cccccc;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #f5f5f5;
+                    color: black;
+                    font-weight: bold;
+                }
+                QProgressBar::chunk {
+                    background-color: #5cb85c;
+                    border-radius: 5px;
+                }
+            """)
             
             # 更新按鈕狀態
             pause_btn = download_item.findChild(QPushButton, f"pause_btn_{filename}")
@@ -1903,13 +2088,45 @@ class DownloadTab(QWidget):
             
             # 通知已下載檔案頁面更新
             self.notify_download_completed(file_path)
+            
+            # 延遲5秒後自動清除該下載項目
+            QTimer.singleShot(5000, lambda: self.auto_remove_completed_item(filename))
+            
         else:
-            # 下載失敗
+            # 下載失敗 - 保留項目並顯示錯誤狀態
             progress_bar.setValue(0)
-            status_label.setText("失敗")
+            
+            # 獲取平台信息
+            platform_name = "未知"
+            if filename in self.download_items and 'platform_info' in self.download_items[filename]:
+                platform_name = self.download_items[filename]['platform_info']['name']
+            
+            status_label.setText(f"{platform_name}影片下載失敗 ❌")
             status_label.setStyleSheet("color: red; font-weight: bold;")
             eta_label.setText("--")
             speed_label.setText("--")
+            
+            # 更新圖標為錯誤狀態
+            icon_label = download_item.findChild(QLabel, f"icon_{filename}")
+            if icon_label:
+                icon_label.setText("❌")
+                icon_label.setStyleSheet("color: #d9534f; font-size: 14pt; font-weight: bold;")
+            
+            # 更新進度條為紅色
+            progress_bar.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #cccccc;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #f5f5f5;
+                    color: black;
+                    font-weight: bold;
+                }
+                QProgressBar::chunk {
+                    background-color: #d9534f;
+                    border-radius: 5px;
+                }
+            """)
             
             # 更新按鈕狀態
             pause_btn = download_item.findChild(QPushButton, f"pause_btn_{filename}")
@@ -1920,6 +2137,11 @@ class DownloadTab(QWidget):
             delete_btn = download_item.findChild(QPushButton, f"delete_btn_{filename}")
             if delete_btn:
                 delete_btn.setText("刪除")
+            
+            # 顯示重試按鈕
+            retry_btn = download_item.findChild(QPushButton, f"retry_btn_{filename}")
+            if retry_btn:
+                retry_btn.setVisible(True)
             
             # 關閉可能存在的錯誤對話框
             if filename in self.error_dialogs and self.error_dialogs[filename].isVisible():
@@ -1936,7 +2158,85 @@ class DownloadTab(QWidget):
         
         # 更新總進度
         self.update_total_progress()
-        
+    
+    def auto_remove_completed_item(self, filename):
+        """自動移除已完成的下載項目"""
+        try:
+            if filename in self.download_items:
+                log(f"自動移除已完成的下載項目: {filename}")
+                
+                # 獲取項目數據
+                item_data = self.download_items[filename]
+                
+                # 檢查是否真的完成了（進度為100%且狀態為已完成）
+                if (item_data['progress_bar'].value() == 100 and 
+                    "已完成" in item_data['status_label'].text()):
+                    
+                    # 創建淡出動畫效果
+                    item_widget = item_data['widget']
+                    
+                    # 使用QPropertyAnimation創建淡出效果
+                    from PySide6.QtCore import QPropertyAnimation, QEasingCurve
+                    from PySide6.QtWidgets import QGraphicsOpacityEffect
+                    
+                    # 創建透明度效果
+                    opacity_effect = QGraphicsOpacityEffect(item_widget)
+                    item_widget.setGraphicsEffect(opacity_effect)
+                    
+                    # 創建淡出動畫
+                    fade_animation = QPropertyAnimation(opacity_effect, b"opacity")
+                    fade_animation.setDuration(500)  # 0.5秒
+                    fade_animation.setStartValue(1.0)
+                    fade_animation.setEndValue(0.0)
+                    fade_animation.setEasingCurve(QEasingCurve.OutCubic)
+                    
+                    # 動畫完成後移除項目
+                    fade_animation.finished.connect(lambda: self.remove_item_from_ui(filename))
+                    
+                    # 開始動畫
+                    fade_animation.start()
+                else:
+                    log(f"項目 {filename} 未完成，不自動移除")
+                    
+        except Exception as e:
+            log(f"自動移除項目時發生錯誤: {str(e)}")
+            # 如果動畫失敗，直接移除
+            self.remove_item_from_ui(filename)
+    
+    def remove_item_from_ui(self, filename):
+        """從UI中移除下載項目"""
+        try:
+            if filename in self.download_items:
+                # 獲取項目數據
+                item_data = self.download_items[filename]
+                item_widget = item_data['widget']
+                
+                # 找到容器（QFrame）
+                container = item_widget.parent()
+                while container and not isinstance(container, QFrame):
+                    container = container.parent()
+                
+                if container:
+                    # 從下載佈局中移除容器
+                    self.download_layout.removeWidget(container)
+                    container.setParent(None)
+                    container.deleteLater()
+                
+                # 清理小部件
+                item_widget.setParent(None)
+                item_widget.deleteLater()
+                
+                # 從字典中移除項目
+                del self.download_items[filename]
+                
+                # 更新總進度
+                self.update_total_progress()
+                
+                log(f"已從UI中移除下載項目: {filename}")
+                
+        except Exception as e:
+            log(f"從UI中移除項目時發生錯誤: {str(e)}")
+
     def show_age_restriction_dialog(self):
         """顯示年齡限制對話框"""
         # 檢查是否已經有年齡限制對話框在顯示
@@ -2325,143 +2625,154 @@ class DownloadTab(QWidget):
                 QMessageBox.warning(self, "錯誤", f"無法打開資料夾: {str(e)}")
 
     def show_error_dialog(self, filename, error_message):
-        """顯示錯誤詳情對話框"""
-        # 檢查是否已經有該檔案的錯誤對話框
-        if filename in self.error_dialogs and self.error_dialogs[filename].isVisible():
-            # 如果已有對話框，則將其帶到前台
-            self.error_dialogs[filename].activateWindow()
-            self.error_dialogs[filename].raise_()
-            return
-            
-        dialog = QDialog(self)
-        dialog.setWindowTitle("下載錯誤")
-        dialog.setMinimumWidth(500)
-        
-        # 將對話框保存到字典中
-        self.error_dialogs[filename] = dialog
-        
-        # 設置對話框關閉事件
-        dialog.finished.connect(lambda: self.error_dialogs.pop(filename, None))
+        """顯示錯誤對話框"""
+        # 如果已經有相同檔名的錯誤對話框，先關閉它
+        if filename in self.error_dialogs and self.error_dialogs[filename] is not None:
+            try:
+                self.error_dialogs[filename].close()
+            except:
+                pass
         
         # 獲取對應的URL
         url_input = self.findChild(QLineEdit, f"url_input_{filename}")
         url = url_input.text() if url_input else "未知URL"
         
-        # 獲取當前下載設定
-        # 初始化這些屬性（如果不存在）
-        if not hasattr(self, 'download_formats'):
-            self.download_formats = {}
-        if not hasattr(self, 'download_resolutions'):
-            self.download_resolutions = {}
-            
-        format_option = self.download_formats.get(filename, "預設品質")
-        resolution = self.download_resolutions.get(filename, "最高可用")
-        output_path = self.path_edit.text()
+        # 獲取格式和解析度
+        format_option = self.download_formats.get(filename, "未知")
+        resolution = self.download_resolutions.get(filename, "未知")
         
-        # 主佈局
+        # 創建錯誤對話框
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"下載錯誤: {filename}")
+        dialog.setMinimumWidth(600)
+        dialog.setStyleSheet("QLabel { margin: 5px; }")
+        
+        # 設置對話框佈局
         layout = QVBoxLayout(dialog)
         
-        # 標題和圖標
-        title_layout = QHBoxLayout()
+        # 錯誤圖標和標題
+        header_layout = QHBoxLayout()
         error_icon = QLabel()
+        error_icon.setPixmap(QIcon.fromTheme("dialog-error").pixmap(32, 32))
+        header_layout.addWidget(error_icon)
         
-        # 檢查錯誤圖標是否存在
-        icon_path = "icons/error.png"
-        if os.path.exists(icon_path):
-            error_icon.setPixmap(QPixmap(icon_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            error_icon.setText("❌")  # 使用文字符號替代
-            error_icon.setStyleSheet("color: red; font-size: 24px;")
-            
-        error_icon.setMaximumWidth(48)
-        title_layout.addWidget(error_icon)
+        error_title = QLabel(f"<h3>下載 '{filename}' 時發生錯誤</h3>")
+        header_layout.addWidget(error_title)
+        header_layout.addStretch(1)
+        layout.addLayout(header_layout)
         
-        title_label = QLabel(f"<b>'{filename}'下載失敗</b>")
-        title_label.setWordWrap(True)
-        title_layout.addWidget(title_label, 1)
-        layout.addLayout(title_layout)
-        
-        # 分割線
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(line)
+        # 分隔線
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator)
         
         # 錯誤詳情
-        error_group = QGroupBox("錯誤詳情")
-        error_layout = QVBoxLayout(error_group)
+        details_group = QGroupBox("錯誤詳情")
+        details_layout = QVBoxLayout(details_group)
         
-        error_text = QTextEdit()
-        error_text.setReadOnly(True)
-        error_text.setPlainText(error_message)
-        error_text.setMaximumHeight(150)
-        error_layout.addWidget(error_text)
+        # 錯誤訊息
+        error_label = QTextEdit()
+        error_label.setPlainText(error_message)
+        error_label.setReadOnly(True)
+        error_label.setMaximumHeight(150)
+        error_label.setStyleSheet("""
+            QTextEdit {
+                background-color: #f8f9fa;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 8px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 9pt;
+            }
+        """)
+        details_layout.addWidget(error_label)
         
-        layout.addWidget(error_group)
+        # URL
+        url_label = QLabel(f"<b>URL:</b> {url}")
+        url_label.setWordWrap(True)
+        url_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        details_layout.addWidget(url_label)
         
-        # 可能的解決方法
-        solutions_group = QGroupBox("可能的解決方法")
+        # 下載設定
+        settings_label = QLabel(f"<b>格式:</b> {format_option}, <b>解析度:</b> {resolution}")
+        settings_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        details_layout.addWidget(settings_label)
+        
+        layout.addWidget(details_group)
+        
+        # 可能的解決方案
+        solutions_group = QGroupBox("可能的解決方案")
         solutions_layout = QVBoxLayout(solutions_group)
         
-        # 根據錯誤類型添加不同的解決方案建議
+        # 根據錯誤類型提供不同的解決方案
         error_lower = error_message.lower()
-        if ("age-restricted" in error_lower or 
-            "sign in" in error_lower or 
-            "confirm your age" in error_lower or 
-            "age verification" in error_lower or
-            "adult content" in error_lower or
+        
+        # 平台不支援錯誤
+        if "無法辨識" in error_message or "不支援此平台" in error_message:
+            solutions_layout.addWidget(QLabel("• 請確認您輸入的URL是否來自支援的平台。"))
+            solutions_layout.addWidget(QLabel("• 支援的平台: YouTube, TikTok/抖音, Facebook, Instagram, Bilibili, X(Twitter)"))
+            solutions_layout.addWidget(QLabel("• 請嘗試使用分享功能獲取正確的影片連結。"))
+        # 需要登入錯誤
+        elif "需要登入" in error_message or "cookies" in error_lower:
+            solutions_layout.addWidget(QLabel("• 此內容需要登入才能訪問，請在設定中提供cookies.txt檔案。"))
+            solutions_layout.addWidget(QLabel("• 在「設定」→「網路設定」→「Cookies設定」中啟用cookies並選擇檔案。"))
+            solutions_layout.addWidget(QLabel("• 您可以使用瀏覽器擴充功能匯出cookies.txt檔案。"))
+        # 年齡限制錯誤
+        elif ("age" in error_lower and "restrict" in error_lower) or ("年齡" in error_message and "限制" in error_message) or (
             "cookies" in error_lower and "age" in error_lower):
             solutions_layout.addWidget(QLabel("• ⚠️ 此影片可能受到年齡限制，請提供 cookies.txt 檔案以繞過限制。"))
             solutions_layout.addWidget(QLabel("• 您可以使用瀏覽器擴充功能匯出 cookies.txt，然後在下載選項中選擇該檔案。"))
             solutions_layout.addWidget(QLabel("• 或者嘗試使用其他影片 URL，如內嵌連結或分享連結。"))
             solutions_layout.addWidget(QLabel("• 詳見: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp"))
-        elif "unavailable" in error_message.lower() or "not available" in error_message.lower():
-            solutions_layout.addWidget(QLabel("• 該影片不可用或已被刪除。"))
-            solutions_layout.addWidget(QLabel("• 請確認影片連結是否正確，或該影片是否仍可在 YouTube 上觀看。"))
-        elif "error 429" in error_message.lower() or "too many requests" in error_message.lower():
-            solutions_layout.addWidget(QLabel("• YouTube 伺服器拒絕請求，可能是因為請求過於頻繁。"))
-            solutions_layout.addWidget(QLabel("• 請稍等一段時間再嘗試下載。"))
-            solutions_layout.addWidget(QLabel("• 嘗試使用代理或 VPN 連接。"))
-        elif "ssl" in error_message.lower() or "certificate" in error_message.lower():
-            solutions_layout.addWidget(QLabel("• SSL 憑證驗證失敗。"))
-            solutions_layout.addWidget(QLabel("• 嘗試更新程式或使用「忽略SSL驗證」選項（已自動啟用）。"))
-        elif "ffmpeg" in error_message.lower():
-            solutions_layout.addWidget(QLabel("• FFmpeg 相關錯誤，無法處理媒體檔案。"))
-            solutions_layout.addWidget(QLabel("• 請確認 FFmpeg 是否正確安裝，或選擇不需要轉換的下載格式。"))
-        elif "network" in error_message.lower() or "timeout" in error_message.lower() or "connection" in error_message.lower():
-            solutions_layout.addWidget(QLabel("• 網路連接問題。"))
-            solutions_layout.addWidget(QLabel("• 請檢查您的網路連接並重試。"))
-            solutions_layout.addWidget(QLabel("• 嘗試選擇較低的解析度，可能更容易下載成功。"))
+        # 網路錯誤
+        elif "network" in error_lower or "timeout" in error_lower or "連線" in error_message or "網路" in error_message:
+            solutions_layout.addWidget(QLabel("• 請檢查您的網路連線是否正常。"))
+            solutions_layout.addWidget(QLabel("• 如果您使用代理或VPN，請確認其是否正常運作。"))
+            solutions_layout.addWidget(QLabel("• 嘗試稍後再試，伺服器可能暫時不可用。"))
+        # 影片不存在或已被刪除
+        elif "not exist" in error_lower or "removed" in error_lower or "不存在" in error_message or "已移除" in error_message:
+            solutions_layout.addWidget(QLabel("• 此影片可能已被刪除或設為私人。"))
+            solutions_layout.addWidget(QLabel("• 請確認URL是否正確。"))
+        # 其他錯誤
         else:
             solutions_layout.addWidget(QLabel("• 嘗試使用不同的格式或解析度選項。"))
-            solutions_layout.addWidget(QLabel("• 檢查您的網路連接。"))
-            solutions_layout.addWidget(QLabel("• 稍後再試。"))
-            solutions_layout.addWidget(QLabel("• 確認影片連結是否正確且影片可用。"))
+            solutions_layout.addWidget(QLabel("• 檢查影片URL是否正確。"))
+            solutions_layout.addWidget(QLabel("• 嘗試重新啟動應用程式。"))
+            solutions_layout.addWidget(QLabel("• 如果問題持續存在，請保存錯誤日誌以供進一步分析。"))
         
         layout.addWidget(solutions_group)
         
-        # 操作按鈕
-        button_layout = QHBoxLayout()
-        retry_button = QPushButton("重試")
+        # 按鈕區域
+        buttons_layout = QHBoxLayout()
+        
+        # 重試按鈕
+        retry_button = QPushButton("重試下載")
         retry_button.clicked.connect(lambda: self.retry_download(filename, dialog))
+        buttons_layout.addWidget(retry_button)
         
-        change_format_button = QPushButton("變更格式選項")
+        # 更改格式按鈕
+        change_format_button = QPushButton("更改格式選項")
         change_format_button.clicked.connect(lambda: self.show_format_options_dialog(filename, dialog))
+        buttons_layout.addWidget(change_format_button)
         
-        save_log_button = QPushButton("保存錯誤報告")
+        # 保存錯誤日誌按鈕
+        save_log_button = QPushButton("保存錯誤日誌")
+        output_path = self.download_path
         save_log_button.clicked.connect(lambda: self.save_error_log(filename, error_message, url, format_option, resolution, output_path))
+        buttons_layout.addWidget(save_log_button)
         
+        # 關閉按鈕
         close_button = QPushButton("關閉")
-        close_button.clicked.connect(dialog.accept)
+        close_button.clicked.connect(dialog.close)
+        buttons_layout.addWidget(close_button)
         
-        button_layout.addWidget(retry_button)
-        button_layout.addWidget(change_format_button)
-        button_layout.addWidget(save_log_button)
-        button_layout.addStretch()
-        button_layout.addWidget(close_button)
+        layout.addLayout(buttons_layout)
         
-        layout.addLayout(button_layout)
+        # 保存對話框引用
+        self.error_dialogs[filename] = dialog
         
+        # 顯示對話框
         dialog.exec()
 
     def retry_download(self, filename, dialog=None):
@@ -2538,7 +2849,7 @@ class DownloadTab(QWidget):
         options_group = QGroupBox("其他選項")
         options_layout = QVBoxLayout(options_group)
         
-        auto_merge_check = QCheckBox("自動合併影片和音訊")
+        auto_merge_check = QCheckBox("自動合併影片和音訊 (高畫質影片將始終合併)")
         auto_merge_check.setChecked(True)
         options_layout.addWidget(auto_merge_check)
         
@@ -3226,7 +3537,8 @@ class SettingsTab(QWidget):
             "格式與品質", 
             "網路設定", 
             "性能優化", 
-            "命名與整理"
+            "命名與整理",
+            "平台支援"
         ])
         self.categories.setCurrentRow(0)
         categories_layout.addWidget(self.categories)
@@ -3240,6 +3552,7 @@ class SettingsTab(QWidget):
         self.settings_stack.addWidget(self.create_network_settings())
         self.settings_stack.addWidget(self.create_performance_settings())
         self.settings_stack.addWidget(self.create_naming_settings())
+        self.settings_stack.addWidget(self.create_platform_settings())
         
         # 添加到主佈局
         layout.addWidget(categories_widget, 1)
@@ -3671,7 +3984,7 @@ class SettingsTab(QWidget):
         merge_group = QGroupBox("合併設定")
         merge_layout = QVBoxLayout(merge_group)
         
-        self.auto_merge_cb = QCheckBox("自動合併影片與音訊")
+        self.auto_merge_cb = QCheckBox("自動合併影片與音訊 (高畫質影片將始終合併)")
         self.auto_merge_cb.setChecked(True)
         merge_layout.addWidget(self.auto_merge_cb)
         
@@ -3704,12 +4017,59 @@ class SettingsTab(QWidget):
         network_widget = QWidget()
         network_layout = QVBoxLayout(network_widget)
         
+        # 代理設定組
+        proxy_group = QGroupBox("代理伺服器設定")
+        proxy_layout = QVBoxLayout(proxy_group)
+        
+        # 使用代理
+        self.use_proxy_cb = QCheckBox("使用代理伺服器")
+        self.use_proxy_cb.setChecked(False)
+        proxy_layout.addWidget(self.use_proxy_cb)
+        
+        # 代理類型
+        proxy_type_layout = QHBoxLayout()
+        proxy_type_layout.addWidget(QLabel("代理類型:"))
+        self.proxy_type_combo = QComboBox()
+        self.proxy_type_combo.addItems(["HTTP", "HTTPS", "SOCKS4", "SOCKS5"])
+        proxy_type_layout.addWidget(self.proxy_type_combo)
+        proxy_type_layout.addStretch(1)
+        proxy_layout.addLayout(proxy_type_layout)
+        
+        # 代理地址和端口
+        proxy_address_layout = QHBoxLayout()
+        proxy_address_layout.addWidget(QLabel("代理地址:"))
+        self.proxy_address_input = QLineEdit()
+        proxy_address_layout.addWidget(self.proxy_address_input)
+        proxy_address_layout.addWidget(QLabel("端口:"))
+        self.proxy_port_input = QLineEdit()
+        self.proxy_port_input.setMaximumWidth(80)
+        proxy_address_layout.addWidget(self.proxy_port_input)
+        proxy_layout.addLayout(proxy_address_layout)
+        
+        # 代理認證
+        self.use_auth_cb = QCheckBox("使用代理認證")
+        self.use_auth_cb.setChecked(False)
+        proxy_layout.addWidget(self.use_auth_cb)
+        
+        # 代理用戶名和密碼
+        proxy_auth_layout = QHBoxLayout()
+        proxy_auth_layout.addWidget(QLabel("用戶名:"))
+        self.proxy_username_input = QLineEdit()
+        proxy_auth_layout.addWidget(self.proxy_username_input)
+        proxy_auth_layout.addWidget(QLabel("密碼:"))
+        self.proxy_password_input = QLineEdit()
+        self.proxy_password_input.setEchoMode(QLineEdit.Password)
+        proxy_auth_layout.addWidget(self.proxy_password_input)
+        proxy_layout.addLayout(proxy_auth_layout)
+        
+        network_layout.addWidget(proxy_group)
+        
         # 添加 Cookies 設定組
-        cookies_group = QGroupBox("Cookies 設定 (用於繞過年齡限制)")
+        cookies_group = QGroupBox("Cookies 設定 (用於登入需要的平台)")
         cookies_layout = QVBoxLayout(cookies_group)
         
         # 使用 cookies 檔案
-        self.use_cookies_cb = QCheckBox("使用 cookies.txt 檔案登入 YouTube (解決年齡限制問題)")
+        self.use_cookies_cb = QCheckBox("使用 cookies.txt 檔案登入 (解決私人內容、年齡限制等問題)")
         self.use_cookies_cb.setChecked(False)
         cookies_layout.addWidget(self.use_cookies_cb)
         
@@ -3727,135 +4087,63 @@ class SettingsTab(QWidget):
         
         cookies_layout.addLayout(cookies_path_layout)
         
-        # 添加說明標籤
+        # 幫助文字
         cookies_help = QLabel("提示：您可以使用瀏覽器擴充功能 (如 'Get cookies.txt') 匯出 cookies.txt 檔案，\n"
-                             "登入 YouTube 後匯出，可用於下載年齡限制影片。")
+                             "這對於下載需要登入的內容（如Facebook私人影片、Instagram限定內容）非常有用。")
         cookies_help.setWordWrap(True)
         cookies_help.setStyleSheet("color: #666; font-style: italic;")
         cookies_layout.addWidget(cookies_help)
         
         network_layout.addWidget(cookies_group)
         
-        # 代理設定組
-        proxy_group = QGroupBox("代理設定")
-        proxy_layout = QVBoxLayout(proxy_group)
-        
-        # 是否使用代理
-        self.use_proxy_cb = QCheckBox("使用代理伺服器")
-        self.use_proxy_cb.setChecked(False)
-        proxy_layout.addWidget(self.use_proxy_cb)
-        
-        # 代理類型
-        proxy_type_layout = QHBoxLayout()
-        proxy_type_layout.addWidget(QLabel("代理類型:"))
-        self.proxy_type_combo = QComboBox()
-        self.proxy_type_combo.addItems(["HTTP", "SOCKS4", "SOCKS5"])
-        proxy_type_layout.addWidget(self.proxy_type_combo)
-        proxy_type_layout.addStretch(1)
-        proxy_layout.addLayout(proxy_type_layout)
-        
-        # 代理位址
-        proxy_address_layout = QHBoxLayout()
-        proxy_address_layout.addWidget(QLabel("代理位址:"))
-        self.proxy_address_input = QLineEdit()
-        self.proxy_address_input.setPlaceholderText("例如: 127.0.0.1")
-        proxy_address_layout.addWidget(self.proxy_address_input)
-        proxy_layout.addLayout(proxy_address_layout)
-        
-        # 代理連接埠
-        proxy_port_layout = QHBoxLayout()
-        proxy_port_layout.addWidget(QLabel("連接埠:"))
-        self.proxy_port_input = QLineEdit()
-        self.proxy_port_input.setPlaceholderText("例如: 1080")
-        proxy_port_layout.addWidget(self.proxy_port_input)
-        proxy_port_layout.addStretch(1)
-        proxy_layout.addLayout(proxy_port_layout)
-        
-        # 代理驗證
-        auth_group = QGroupBox("代理驗證")
-        auth_layout = QVBoxLayout(auth_group)
-        
-        self.use_auth_cb = QCheckBox("需要驗證")
-        self.use_auth_cb.setChecked(False)
-        auth_layout.addWidget(self.use_auth_cb)
-        
-        # 使用者名稱
-        username_layout = QHBoxLayout()
-        username_layout.addWidget(QLabel("使用者名稱:"))
-        self.proxy_username_input = QLineEdit()
-        username_layout.addWidget(self.proxy_username_input)
-        auth_layout.addLayout(username_layout)
-        
-        # 密碼
-        password_layout = QHBoxLayout()
-        password_layout.addWidget(QLabel("密碼:"))
-        self.proxy_password_input = QLineEdit()
-        self.proxy_password_input.setEchoMode(QLineEdit.Password)
-        password_layout.addWidget(self.proxy_password_input)
-        auth_layout.addLayout(password_layout)
-        
-        proxy_layout.addWidget(auth_group)
-        network_layout.addWidget(proxy_group)
-        
-        # 連接設定組
-        connection_group = QGroupBox("連接設定")
-        connection_layout = QVBoxLayout(connection_group)
+        # 重試設定
+        retry_group = QGroupBox("重試設定")
+        retry_layout = QVBoxLayout(retry_group)
         
         # 重試次數
-        retry_layout = QHBoxLayout()
-        retry_layout.addWidget(QLabel("下載失敗重試次數:"))
+        retry_count_layout = QHBoxLayout()
+        retry_count_layout.addWidget(QLabel("重試次數:"))
         self.retry_spin = QSpinBox()
-        self.retry_spin.setMinimum(0)
-        self.retry_spin.setMaximum(10)
+        self.retry_spin.setRange(0, 10)
         self.retry_spin.setValue(3)
-        retry_layout.addWidget(self.retry_spin)
-        retry_layout.addStretch(1)
-        connection_layout.addLayout(retry_layout)
+        retry_count_layout.addWidget(self.retry_spin)
+        retry_count_layout.addStretch(1)
+        retry_layout.addLayout(retry_count_layout)
         
-        # 等待時間
-        wait_layout = QHBoxLayout()
-        wait_layout.addWidget(QLabel("重試間隔時間 (秒):"))
+        # 重試等待時間
+        retry_wait_layout = QHBoxLayout()
+        retry_wait_layout.addWidget(QLabel("重試等待時間 (秒):"))
         self.wait_spin = QSpinBox()
-        self.wait_spin.setMinimum(1)
-        self.wait_spin.setMaximum(60)
+        self.wait_spin.setRange(1, 60)
         self.wait_spin.setValue(5)
-        wait_layout.addWidget(self.wait_spin)
-        wait_layout.addStretch(1)
-        connection_layout.addLayout(wait_layout)
+        retry_wait_layout.addWidget(self.wait_spin)
+        retry_wait_layout.addStretch(1)
+        retry_layout.addLayout(retry_wait_layout)
         
-        # 超時時間
+        # 連接超時
         timeout_layout = QHBoxLayout()
-        timeout_layout.addWidget(QLabel("連接超時時間 (秒):"))
+        timeout_layout.addWidget(QLabel("連接超時 (秒):"))
         self.timeout_spin = QSpinBox()
-        self.timeout_spin.setMinimum(10)
-        self.timeout_spin.setMaximum(300)
+        self.timeout_spin.setRange(10, 300)
         self.timeout_spin.setValue(60)
         timeout_layout.addWidget(self.timeout_spin)
         timeout_layout.addStretch(1)
-        connection_layout.addLayout(timeout_layout)
+        retry_layout.addLayout(timeout_layout)
         
-        # SSL驗證
-        self.disable_ssl_cb = QCheckBox("停用SSL證書驗證（解決某些SSL錯誤）")
+        network_layout.addWidget(retry_group)
+        
+        # SSL 設定
+        ssl_group = QGroupBox("SSL 設定")
+        ssl_layout = QVBoxLayout(ssl_group)
+        
+        self.disable_ssl_cb = QCheckBox("禁用 SSL 驗證 (解決某些 SSL 錯誤)")
         self.disable_ssl_cb.setChecked(True)
-        connection_layout.addWidget(self.disable_ssl_cb)
+        ssl_layout.addWidget(self.disable_ssl_cb)
         
-        network_layout.addWidget(connection_group)
+        network_layout.addWidget(ssl_group)
         
-        # 按鈕區域
-        buttons_layout = QHBoxLayout()
-        buttons_layout.addStretch(1)
-        apply_btn = QPushButton("套用")
-        cancel_btn = QPushButton("取消")
-        reset_btn = QPushButton("重設為預設值")
-        buttons_layout.addWidget(apply_btn)
-        buttons_layout.addWidget(cancel_btn)
-        buttons_layout.addWidget(reset_btn)
-        network_layout.addLayout(buttons_layout)
-        
-        # 連接信號
-        apply_btn.clicked.connect(self.apply_settings)
-        cancel_btn.clicked.connect(self.cancel_changes)
-        reset_btn.clicked.connect(self.reset_settings)
+        # 添加伸展空間
+        network_layout.addStretch(1)
         
         return network_widget
         
@@ -4068,6 +4356,68 @@ class SettingsTab(QWidget):
             self.prefix_history_list.takeItem(row)
             log(f"已移除前綴: {selected_prefix}")
 
+    def create_platform_settings(self):
+        """創建平台支援設定頁面"""
+        platform_widget = QWidget()
+        platform_layout = QVBoxLayout(platform_widget)
+        
+        # 支援平台說明
+        platform_group = QGroupBox("支援的平台")
+        platform_group_layout = QVBoxLayout(platform_group)
+        
+        # 添加支援的平台列表
+        supported_platforms = get_supported_platforms()
+        for platform in supported_platforms:
+            platform_item = QLabel(f"• {platform}")
+            platform_item.setStyleSheet("font-size: 11pt; margin: 5px;")
+            platform_group_layout.addWidget(platform_item)
+        
+        platform_layout.addWidget(platform_group)
+        
+        # 平台特定說明
+        notes_group = QGroupBox("平台特別說明")
+        notes_layout = QVBoxLayout(notes_group)
+        
+        notes = [
+            ("YouTube", "支援大多數公開影片，年齡限制內容需要cookies。"),
+            ("TikTok / 抖音", "支援公開影片和部分私人影片。"),
+            ("Facebook", "需要cookies才能下載私人或僅限朋友可見的內容。"),
+            ("Instagram", "需要cookies才能下載私人帳號或限時動態內容。"),
+            ("Bilibili", "支援大多數公開影片和部分會員專屬內容。"),
+            ("X (Twitter)", "支援公開推文中的影片和圖片。")
+        ]
+        
+        for platform, note in notes:
+            note_label = QLabel(f"<b>{platform}</b>: {note}")
+            note_label.setWordWrap(True)
+            note_label.setStyleSheet("margin: 5px;")
+            notes_layout.addWidget(note_label)
+        
+        platform_layout.addWidget(notes_group)
+        
+        # Cookies說明
+        cookies_group = QGroupBox("關於Cookies")
+        cookies_layout = QVBoxLayout(cookies_group)
+        
+        cookies_label = QLabel(
+            "某些平台的內容需要登入才能訪問，此時您需要提供cookies.txt檔案。\n\n"
+            "獲取cookies.txt的方法：\n"
+            "1. 在瀏覽器中安裝「Get cookies.txt」或類似的擴充功能\n"
+            "2. 登入需要的平台（如Facebook、Instagram等）\n"
+            "3. 使用擴充功能匯出cookies.txt檔案\n"
+            "4. 在「網路設定」中啟用cookies並選擇該檔案\n\n"
+            "注意：cookies檔案包含您的登入資訊，請妥善保管，不要分享給他人"
+        )
+        cookies_label.setWordWrap(True)
+        cookies_layout.addWidget(cookies_label)
+        
+        platform_layout.addWidget(cookies_group)
+        
+        # 添加伸展空間
+        platform_layout.addStretch(1)
+        
+        return platform_widget
+
 class QStackedWidget(QWidget):
     """自定義堆疊小部件"""
     
@@ -4097,7 +4447,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         """初始化"""
         super().__init__()
-        self.setWindowTitle("YouTube 下載器")
+        self.setWindowTitle("多平台影片下載器")
         self.setGeometry(100, 100, 1000, 700)
         self.setMinimumSize(800, 600)
         
@@ -4251,16 +4601,16 @@ def main():
     app.setStyle("Fusion")  # 使用Fusion風格，跨平台一致性更好
     
     # 設定應用程式資訊
-    app.setApplicationName("YouTube下載器")
-    app.setApplicationVersion("1.64")  # 更新版本號
-    app.setOrganizationName("YouTube Downloader")
+    app.setApplicationName("多平台影片下載器")
+    app.setApplicationVersion("1.65")  # 更新版本號
+    app.setOrganizationName("Video Downloader")
     
     # 設置應用字體
     font = QFont()
     font.setPointSize(9)
     app.setFont(font)
     
-    log("啟動YouTube下載器 V1.64 - 分頁式界面 (改進年齡限制處理)")
+    log("啟動多平台影片下載器 V1.65 - 支援YouTube、TikTok、Facebook等多個平台")
     
     window = MainWindow()
     window.show()

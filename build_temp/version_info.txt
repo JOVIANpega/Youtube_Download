@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 6, 4, 0),
-    prodvers=(1, 6, 4, 0),
+    filevers=(1, 6, 5, 0),
+    prodvers=(1, 6, 5, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -14,20 +14,20 @@ VSVersionInfo(
       StringTable(
         u'040904B0',
         [StringStruct(u'CompanyName', u'YouTube Downloader'),
-         StringStruct(u'FileDescription', u'YouTube 影片下載器 V1.64 - 高解析度支援版本'),
-         StringStruct(u'FileVersion', u'1.6.4'),
+         StringStruct(u'FileDescription', u'YouTube 影片下載器 V1.65 - 高解析度支援版本'),
+         StringStruct(u'FileVersion', u'1.6.5'),
          StringStruct(u'InternalName', u'youtube_downloader'),
          StringStruct(u'LegalCopyright', u'Copyright (c) 2024'),
          StringStruct(u'OriginalFilename', u'YouTube下載器.exe'),
          StringStruct(u'ProductName', u'YouTube 影片下載器'),
-         StringStruct(u'ProductVersion', u'1.6.4')])
+         StringStruct(u'ProductVersion', u'1.6.5')])
     ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
 )
 
-# Version: 1.64
-# Release Date: 2023-07-17
+# Version: 1.65
+# Release Date: 2024-07-25
 # Author: Jovian
 # Main Features: High-resolution YouTube video download, supports multiple format conversion
-# Updates: Fixed formatting errors, optimized prefix management, improved error handling
+# Updates: Code cleanup, removed unnecessary files, improved project structure

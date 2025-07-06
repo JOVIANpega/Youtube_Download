@@ -10,6 +10,7 @@ import traceback
 import urllib.request
 import subprocess
 import datetime
+import re
 
 def log(message):
     """輸出日誌"""
@@ -213,3 +214,91 @@ def sanitize_filename(filename):
         filename = "video"
     
     return filename 
+
+def identify_platform(url):
+    """
+    識別URL所屬的平台
+    
+    支援的平台:
+    - YouTube
+    - TikTok / 抖音
+    - Facebook
+    - Instagram
+    - Bilibili
+    - X (Twitter)
+    
+    返回:
+    - 平台名稱
+    - 是否需要登入 (cookie)
+    - 平台特定的下載選項
+    """
+    # 定義平台的正則表達式模式
+    patterns = {
+        "YouTube": r"(?:https?://)?(?:www\.|m\.)?(?:youtube\.com|youtu\.be)/.+",
+        "TikTok": r"(?:https?://)?(?:www\.|m\.)?(?:tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)/.+",
+        "抖音": r"(?:https?://)?(?:www\.|v\.)?douyin\.com/.+",
+        "Facebook": r"(?:https?://)?(?:www\.|m\.)?(?:facebook\.com|fb\.com|fb\.watch)/.+",
+        "Instagram": r"(?:https?://)?(?:www\.|m\.)?instagram\.com/.+",
+        "Bilibili": r"(?:https?://)?(?:www\.|m\.)?bilibili\.com/.+",
+        "X": r"(?:https?://)?(?:www\.|mobile\.)?(?:twitter\.com|x\.com)/.+",
+    }
+    
+    # 檢查URL匹配哪個平台
+    for platform, pattern in patterns.items():
+        if re.match(pattern, url, re.IGNORECASE):
+            # 設定平台特定的下載選項和登入需求
+            platform_info = {
+                "name": platform,
+                "needs_login": False,
+                "download_options": {}
+            }
+            
+            # 設定平台特定的登入需求和下載選項
+            if platform == "Facebook":
+                platform_info["needs_login"] = True
+                platform_info["download_options"] = {
+                    "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/best",
+                }
+            elif platform == "Instagram":
+                platform_info["needs_login"] = True
+                platform_info["download_options"] = {
+                    "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/best",
+                }
+            elif platform == "Bilibili":
+                platform_info["download_options"] = {
+                    "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/best",
+                }
+            elif platform == "TikTok" or platform == "抖音":
+                platform_info["download_options"] = {
+                    "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/best",
+                }
+            elif platform == "X":
+                platform_info["download_options"] = {
+                    "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio/best",
+                }
+            else:  # YouTube 和其他平台
+                platform_info["download_options"] = {
+                    "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
+                }
+            
+            return platform_info
+    
+    # 如果沒有匹配的平台
+    return {
+        "name": "未知",
+        "needs_login": False,
+        "download_options": {}
+    }
+
+def get_supported_platforms():
+    """
+    返回支援的平台列表
+    """
+    return [
+        "YouTube",
+        "TikTok / 抖音",
+        "Facebook",
+        "Instagram",
+        "Bilibili",
+        "X (Twitter)"
+    ] 

@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-YouTube下載器啟動腳本 V1.65
-此腳本用於啟動YouTube下載器，並自動安裝所需依賴
+多平台影片下載器啟動腳本 V1.65
+此腳本用於啟動多平台影片下載器，並自動安裝所需依賴
 """
 
 import os
@@ -29,10 +29,16 @@ def main():
             install_module(module)
     
     # 確保當前工作目錄是腳本所在的目錄
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
+    # 添加src目錄到Python路徑
+    src_dir = os.path.join(script_dir, "src")
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
     
     # 啟動下載器
-    print("正在啟動 YouTube下載器 V1.65...")
+    print("正在啟動多平台影片下載器 V1.65...")
     try:
         from src import tabbed_gui_demo
         tabbed_gui_demo.main()
