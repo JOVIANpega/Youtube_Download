@@ -133,14 +133,28 @@ class DownloadThread(QThread):
                 self.last_error = str(e)
                 log(f"下載失敗: {self.last_error}")
                 
-                # 檢查是否需要登入
-                if self.platform_info["needs_login"] and ("需要登入" in self.last_error or "login" in self.last_error.lower()):
-                    self.finished.emit(False, f"下載失敗: 此{platform_name}內容需要登入，請在設定中提供cookies.txt檔案", "")
+                # 檢查是否為Twitter保護推文錯誤
+                error_lower = self.last_error.lower()
+                if platform_name in ["X", "Twitter"] and ("protected tweet" in error_lower or "not authorized" in error_lower or "account credentials" in error_lower):
+                    # 直接返回特殊錯誤訊息，不嘗試備用方法
+                    special_error = f"YT_DLP_FAILURE:{platform_name}:{self.last_error}"
+                    log(f"檢測到Twitter保護推文錯誤，返回特殊錯誤訊息: {special_error}")
+                    self.finished.emit(False, special_error, "")
                     return
                 
                 # 處理特定平台的錯誤
                 platform_name = self.platform_info["name"] if self.platform_info else "未知"
                 error_message = self.get_platform_specific_error_message(platform_name, self.last_error)
+                
+                # 檢查是否為yt-dlp執行失敗，如果是則直接返回錯誤
+                if error_message.startswith("YT_DLP_FAILURE:"):
+                    self.finished.emit(False, error_message, "")
+                    return
+                
+                # 檢查是否需要登入
+                if self.platform_info["needs_login"] and ("需要登入" in self.last_error or "login" in self.last_error.lower()):
+                    self.finished.emit(False, f"下載失敗: 此{platform_name}內容需要登入，請在設定中提供cookies.txt檔案", "")
+                    return
                 
                 # 嘗試備用下載方法
                 if self.retry_count < self.max_retries:
@@ -459,13 +473,31 @@ class DownloadThread(QThread):
             self.last_error = str(e)
             log(f"備用下載方法失敗: {self.last_error}")
             
+            # 檢查是否為Twitter保護推文錯誤
+            platform_name = self.platform_info["name"] if self.platform_info else "未知"
+            error_lower = self.last_error.lower()
+            if platform_name in ["X", "Twitter"] and ("protected tweet" in error_lower or "not authorized" in error_lower or "account credentials" in error_lower):
+                # 直接返回特殊錯誤訊息，不嘗試其他方法
+                special_error = f"YT_DLP_FAILURE:{platform_name}:{self.last_error}"
+                log(f"備用方法檢測到Twitter保護推文錯誤，返回特殊錯誤訊息: {special_error}")
+                self.finished.emit(False, special_error, "")
+                return
+            
+            # 處理特定平台的錯誤
+            error_message = self.get_platform_specific_error_message(platform_name, self.last_error)
+            
+            # 檢查是否為yt-dlp執行失敗，如果是則直接返回錯誤
+            if error_message.startswith("YT_DLP_FAILURE:"):
+                self.finished.emit(False, error_message, "")
+                return
+            
             # 如果備用方法也失敗，嘗試分段下載
             if self.retry_count < self.max_retries:
                 self.retry_count += 1
                 log(f"嘗試分段下載 (嘗試 {self.retry_count}/{self.max_retries})...")
                 self.try_segment_download()
             else:
-                self.finished.emit(False, f"下載失敗: {self.last_error}", "")
+                self.finished.emit(False, f"備用方法也失敗: {error_message}", "")
     
     def try_segment_download(self):
         """嘗試分段下載，當其他方法都失敗時使用"""
@@ -583,7 +615,27 @@ class DownloadThread(QThread):
                         return False
         except Exception as e:
             self.progress.emit(f"分段下載失敗: {str(e)}", 0, "--", "--")
-            self.finished.emit(False, f"下載失敗: {str(e)}", "")
+            
+            # 檢查是否為Twitter保護推文錯誤
+            platform_name = self.platform_info["name"] if self.platform_info else "未知"
+            error_str = str(e)
+            error_lower = error_str.lower()
+            if platform_name in ["X", "Twitter"] and ("protected tweet" in error_lower or "not authorized" in error_lower or "account credentials" in error_lower):
+                # 直接返回特殊錯誤訊息
+                special_error = f"YT_DLP_FAILURE:{platform_name}:{error_str}"
+                log(f"分段下載檢測到Twitter保護推文錯誤，返回特殊錯誤訊息: {special_error}")
+                self.finished.emit(False, special_error, "")
+                return False
+            
+            # 處理特定平台的錯誤
+            error_message = self.get_platform_specific_error_message(platform_name, error_str)
+            
+            # 檢查是否為yt-dlp執行失敗，如果是則直接返回錯誤
+            if error_message.startswith("YT_DLP_FAILURE:"):
+                self.finished.emit(False, error_message, "")
+                return False
+            
+            self.finished.emit(False, f"下載失敗: {error_message}", "")
             return False
     
     def progress_hook(self, d):
@@ -726,9 +778,32 @@ class DownloadThread(QThread):
             "access denied", "forbidden", "403", "404", "not authorized",
             "protected", "restricted", "age restricted", "sign in required",
             "login required", "authentication required", "rate limit",
-            "too many requests", "blocked", "geoblocked", "region restricted"
+            "too many requests", "blocked", "geoblocked", "region restricted",
+            "protected tweet", "you are not authorized", "account credentials",
+            "postprocessing", "codec", "invalid argument", "requested format is not available"
         ]
         
+        # 特別針對X/Twitter平台的錯誤關鍵詞
+        twitter_specific_keywords = [
+            "protected tweet", "you are not authorized", "account credentials",
+            "twitter", "provide account credentials"
+        ]
+        
+        # 特別針對Instagram平台的錯誤關鍵詞
+        instagram_specific_keywords = [
+            "requested format is not available", "postprocessing", "codec", 
+            "invalid argument", "could not write header", "instagram"
+        ]
+        
+        # 檢查是否為X/Twitter平台的特定錯誤
+        if platform_name in ["X", "Twitter"] and any(keyword in error_lower for keyword in twitter_specific_keywords):
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
+        
+        # 檢查是否為Instagram平台的特定錯誤
+        if platform_name == "Instagram" and any(keyword in error_lower for keyword in instagram_specific_keywords):
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
+        
+        # 檢查一般yt-dlp失敗關鍵詞
         is_yt_dlp_failure = any(keyword in error_lower for keyword in yt_dlp_failure_keywords)
         
         # 如果是yt-dlp失敗，返回特殊錯誤訊息
@@ -738,38 +813,25 @@ class DownloadThread(QThread):
         # 通用錯誤處理
         if "unsupported url" in error_lower or "no video formats found" in error_lower:
             if platform_name in ["Instagram", "Facebook", "TikTok", "抖音", "X"]:
-                return f"{platform_name}影片下載失敗：網站反爬蟲限制\n\n建議解決方案：\n1. 更新 yt-dlp 到最新版本\n2. 在設定中提供 cookies.txt 檔案\n3. 確認影片連結是否為公開內容\n\n技術錯誤：{error}"
+                return f"YT_DLP_FAILURE:{platform_name}:{error}"
             else:
                 return f"下載失敗：不支援的URL或無法找到影片格式\n\n技術錯誤：{error}"
         
         elif "postprocessing" in error_lower and "codec" in error_lower:
-            return f"{platform_name}影片下載失敗：FFmpeg編碼錯誤\n\n建議解決方案：\n1. 更新 FFmpeg 到最新版本\n2. 嘗試不同的影片格式設定\n3. 檢查磁碟空間是否充足\n\n技術錯誤：{error}"
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
         
         elif "network" in error_lower or "connection" in error_lower:
-            return f"{platform_name}影片下載失敗：網路連接問題\n\n建議解決方案：\n1. 檢查網路連接\n2. 嘗試使用VPN\n3. 稍後再試\n\n技術錯誤：{error}"
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
         
         elif "access denied" in error_lower or "forbidden" in error_lower:
-            if platform_name == "X":
-                return f"X.com影片下載失敗：存取被拒絕\n\nX.com影片需模擬手機瀏覽器才能成功下載\n\n建議解決方案：\n1. 在設定中提供 cookies.txt 檔案\n2. 確認影片為公開內容\n3. 嘗試使用不同的User-Agent\n4. 檢查影片是否需要登入才能觀看\n\n技術錯誤：{error}"
-            elif platform_name in ["Instagram", "Facebook", "TikTok", "抖音"]:
-                return f"{platform_name}影片下載失敗：存取被拒絕\n\n建議解決方案：\n1. 在設定中提供 cookies.txt 檔案\n2. 確認影片為公開內容\n3. 嘗試使用不同的User-Agent\n\n技術錯誤：{error}"
-            else:
-                return f"下載失敗：存取被拒絕\n\n技術錯誤：{error}"
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
         
         elif "rate limit" in error_lower or "too many requests" in error_lower:
-            return f"{platform_name}影片下載失敗：請求頻率過高\n\n建議解決方案：\n1. 等待一段時間後再試\n2. 使用VPN切換IP\n3. 在設定中提供cookies.txt\n\n技術錯誤：{error}"
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
         
         elif "not authorized" in error_lower or "protected tweet" in error_lower:
-            if platform_name == "X":
-                return f"X.com影片下載失敗：需要授權\n\nX.com影片需模擬手機瀏覽器才能成功下載\n\n建議解決方案：\n1. 在設定中提供 cookies.txt 檔案\n2. 確認影片為公開內容（非保護推文）\n3. 嘗試使用不同的User-Agent\n4. 檢查影片是否需要登入才能觀看\n\n技術錯誤：{error}"
-            else:
-                return f"{platform_name}影片下載失敗：需要授權\n\n建議解決方案：\n1. 在設定中提供 cookies.txt 檔案\n2. 確認影片為公開內容\n\n技術錯誤：{error}"
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
         
         else:
-            # 通用錯誤訊息
-            if platform_name == "X":
-                return f"X.com影片下載失敗\n\nX.com影片需模擬手機瀏覽器才能成功下載\n\n可能原因：\n1. 網站反爬蟲機制\n2. 需要登入或cookies\n3. yt-dlp版本過舊\n4. 影片為保護推文\n\n建議解決方案：\n1. 更新 yt-dlp\n2. 提供cookies.txt\n3. 確認影片連結有效性\n4. 檢查影片是否為公開內容\n\n技術錯誤：{error}"
-            elif platform_name in ["Instagram", "Facebook", "TikTok", "抖音"]:
-                return f"{platform_name}影片下載失敗\n\n可能原因：\n1. 網站反爬蟲機制\n2. 需要登入或cookies\n3. yt-dlp版本過舊\n\n建議解決方案：\n1. 更新 yt-dlp\n2. 提供cookies.txt\n3. 確認影片連結有效性\n\n技術錯誤：{error}"
-            else:
-                return f"下載失敗：{error}" 
+            # 通用錯誤訊息，也使用YT_DLP_FAILURE前綴
+            return f"YT_DLP_FAILURE:{platform_name}:{error}" 

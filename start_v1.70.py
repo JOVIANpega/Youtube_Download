@@ -11,6 +11,7 @@ import sys
 import subprocess
 import traceback
 import importlib.util
+import time
 
 # 設置工作目錄
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +32,20 @@ def check_ytdlp():
 def install_ytdlp():
     print("正在安裝 yt-dlp...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"])
+
+# 安全等待用戶輸入
+def safe_input(prompt):
+    """安全的輸入函數，避免在PyInstaller打包後出現stdin錯誤"""
+    try:
+        return input(prompt)
+    except Exception as e:
+        print(f"{prompt} (按Enter繼續...)")
+        try:
+            # 等待幾秒鐘
+            time.sleep(5)
+            return ""
+        except Exception:
+            return ""
 
 # 主程式
 def main():
@@ -59,15 +74,15 @@ def main():
                 tabbed_gui.main()
             else:
                 print("錯誤: tabbed_gui_demo.py 中找不到 main 函數")
-                input("按 Enter 鍵退出...")
+                safe_input("按 Enter 鍵退出...")
         else:
             print(f"錯誤: 找不到文件 {tabbed_gui_path}")
-            input("按 Enter 鍵退出...")
+            safe_input("按 Enter 鍵退出...")
     except Exception as e:
         print(f"啟動失敗: {str(e)}")
         print("堆疊追蹤:")
         traceback.print_exc()
-        input("按 Enter 鍵退出...")
+        safe_input("按 Enter 鍵退出...")
 
 if __name__ == "__main__":
     main() 
