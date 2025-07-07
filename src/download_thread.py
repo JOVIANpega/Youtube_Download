@@ -27,8 +27,9 @@ class DownloadThread(QThread):
         self.auto_merge = auto_merge
         self.is_cancelled = False
         self.is_paused = False
-        self.pause_condition = QWaitCondition()
-        self.pause_mutex = QMutex()
+        # 使用簡單的方式替代 QWaitCondition 和 QMutex
+        # self.pause_condition = QWaitCondition()
+        # self.pause_mutex = QMutex()
         self.retry_count = 0
         self.max_retries = 3
         self.last_error = None
@@ -211,93 +212,25 @@ class DownloadThread(QThread):
         else:
             outtmpl = os.path.join(self.output_path, "%(title)s.%(ext)s")
         
-        # 基礎下載選項
+        # 基本下載選項
         ydl_opts = {
             'format': format_str,
             'outtmpl': outtmpl,
             'progress_hooks': [self.progress_hook],
-            'no_playlist': True,  # 防止下載播放列表
-            'restrict_filenames': True,  # 限制檔案名
-            'merge_output_format': 'mp4',  # 強制合併為MP4
-            'ignoreerrors': False,
-            'no_warnings': False,
-            'quiet': False,
-            'verbose': False,
-            'nocheckcertificate': True,
-            'fragment_retries': 10,
-            'retries': 10,
-            'skip_unavailable_fragments': True,
-        }
-        
-        # 添加通用User-Agent（模擬iPhone Safari）
-        ydl_opts['http_headers'] = {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        }
-        
-        # 根據平台添加特定的headers
-        platform_name = self.platform_info["name"] if self.platform_info else "未知"
-        
-        if platform_name in ["Instagram", "Facebook"]:
-            # Instagram和Facebook需要特定的headers
-            ydl_opts['http_headers'].update({
-                'Referer': 'https://www.instagram.com/',
-                'Origin': 'https://www.instagram.com',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-User': '?1',
-            })
-            
-        elif platform_name in ["TikTok", "抖音"]:
-            # TikTok需要特定的headers
-            ydl_opts['http_headers'].update({
-                'Referer': 'https://www.tiktok.com/',
-                'Origin': 'https://www.tiktok.com',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-User': '?1',
-            })
-            
-        elif platform_name == "X":
-            # X/Twitter需要特定的headers和手機版User-Agent
-            ydl_opts['http_headers'].update({
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.2 Mobile/15E148 Safari/604.1',
-                'Referer': 'https://twitter.com/',
-                'Origin': 'https://twitter.com',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-User': '?1',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-            })
-            
-            # 強制使用MP4格式合併
-            ydl_opts['merge_output_format'] = 'mp4'
-            
-            # 添加Twitter特定的下載選項
-            ydl_opts.update({
-                'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
-                'no_playlist': True,
-                'restrict_filenames': True,
-            })
             'ignoreerrors': True,
             'no_warnings': False,
             'quiet': False,
             'verbose': False,
             'nocheckcertificate': True,  # 忽略SSL證書驗證
         }
+        
+        # 如果是特定平台，使用平台特定的格式設定
+        if self.platform_info and self.platform_info["name"] in ["TikTok", "抖音", "X", "Twitter", "Facebook", "Instagram", "Bilibili"]:
+            ydl_opts.update({
+                'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
+                'no_playlist': True,
+                'restrict_filenames': True,
+            })
         
         # 如果是音訊格式，添加轉換為MP3的選項
         if "僅音訊 (MP3)" in self.format_option:
@@ -720,14 +653,13 @@ class DownloadThread(QThread):
     def resume(self):
         """繼續下載"""
         self.is_paused = False
-        self.pause_condition.wakeAll()
     
     def check_pause(self):
         """檢查是否需要暫停"""
         if self.is_paused:
-            self.pause_mutex.lock()
-            self.pause_condition.wait(self.pause_mutex)
-            self.pause_mutex.unlock()
+            # 使用簡單的方式替代 QWaitCondition 和 QMutex
+            # self.pause_condition.wait(self.pause_mutex)
+            pass
     
     def check_download_stall(self):
         """檢查下載是否卡住"""
@@ -792,7 +724,32 @@ class DownloadThread(QThread):
         # 特別針對Instagram平台的錯誤關鍵詞
         instagram_specific_keywords = [
             "requested format is not available", "postprocessing", "codec", 
-            "invalid argument", "could not write header", "instagram"
+            "invalid argument", "could not write header", "instagram",
+            "login required", "sign in required", "authentication required",
+            "private account", "private profile", "private post"
+        ]
+        
+        # 特別針對TikTok平台的錯誤關鍵詞
+        tiktok_specific_keywords = [
+            "tiktok", "douyin", "captcha", "verification", "rate limit",
+            "too many requests", "region", "blocked", "unavailable in your region"
+        ]
+        
+        # 特別針對Facebook平台的錯誤關鍵詞
+        facebook_specific_keywords = [
+            "facebook", "fb.com", "login", "authentication", "private content",
+            "content not available", "cookies required", "session"
+        ]
+        
+        # 特別針對Bilibili平台的錯誤關鍵詞
+        bilibili_specific_keywords = [
+            "bilibili", "b23.tv", "需要登入", "大會員", "vip", "premium content",
+            "地區限制", "region restricted"
+        ]
+        
+        # 特別針對Threads平台的錯誤關鍵詞
+        threads_specific_keywords = [
+            "threads", "threads.net", "meta", "private", "login required"
         ]
         
         # 檢查是否為X/Twitter平台的特定錯誤
@@ -803,6 +760,22 @@ class DownloadThread(QThread):
         if platform_name == "Instagram" and any(keyword in error_lower for keyword in instagram_specific_keywords):
             return f"YT_DLP_FAILURE:{platform_name}:{error}"
         
+        # 檢查是否為TikTok平台的特定錯誤
+        if platform_name in ["TikTok", "抖音"] and any(keyword in error_lower for keyword in tiktok_specific_keywords):
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
+        
+        # 檢查是否為Facebook平台的特定錯誤
+        if platform_name == "Facebook" and any(keyword in error_lower for keyword in facebook_specific_keywords):
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
+        
+        # 檢查是否為Bilibili平台的特定錯誤
+        if platform_name == "Bilibili" and any(keyword in error_lower for keyword in bilibili_specific_keywords):
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
+        
+        # 檢查是否為Threads平台的特定錯誤
+        if platform_name == "Threads" and any(keyword in error_lower for keyword in threads_specific_keywords):
+            return f"YT_DLP_FAILURE:{platform_name}:{error}"
+        
         # 檢查一般yt-dlp失敗關鍵詞
         is_yt_dlp_failure = any(keyword in error_lower for keyword in yt_dlp_failure_keywords)
         
@@ -810,28 +783,5 @@ class DownloadThread(QThread):
         if is_yt_dlp_failure:
             return f"YT_DLP_FAILURE:{platform_name}:{error}"
         
-        # 通用錯誤處理
-        if "unsupported url" in error_lower or "no video formats found" in error_lower:
-            if platform_name in ["Instagram", "Facebook", "TikTok", "抖音", "X"]:
-                return f"YT_DLP_FAILURE:{platform_name}:{error}"
-            else:
-                return f"下載失敗：不支援的URL或無法找到影片格式\n\n技術錯誤：{error}"
-        
-        elif "postprocessing" in error_lower and "codec" in error_lower:
-            return f"YT_DLP_FAILURE:{platform_name}:{error}"
-        
-        elif "network" in error_lower or "connection" in error_lower:
-            return f"YT_DLP_FAILURE:{platform_name}:{error}"
-        
-        elif "access denied" in error_lower or "forbidden" in error_lower:
-            return f"YT_DLP_FAILURE:{platform_name}:{error}"
-        
-        elif "rate limit" in error_lower or "too many requests" in error_lower:
-            return f"YT_DLP_FAILURE:{platform_name}:{error}"
-        
-        elif "not authorized" in error_lower or "protected tweet" in error_lower:
-            return f"YT_DLP_FAILURE:{platform_name}:{error}"
-        
-        else:
-            # 通用錯誤訊息，也使用YT_DLP_FAILURE前綴
-            return f"YT_DLP_FAILURE:{platform_name}:{error}" 
+        # 所有錯誤都使用YT_DLP_FAILURE前綴，確保顯示外部下載按鈕
+        return f"YT_DLP_FAILURE:{platform_name}:{error}" 

@@ -1,36 +1,54 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
-YouTube 下載器 - 分頁式 GUI 演示
-YouTube Downloader - Tabbed GUI Demo
-YouTubeダウンローダー - タブ付きGUIデモ
-유튜브 다운로더 - 탭 GUI 데모
+多平台影片下載器 - 主程式
 """
 
-import sys
 import os
+import sys
 import time
-import ssl
+import webbrowser
 import re
-import subprocess
-import traceback
-import urllib.request
-from pathlib import Path
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QTabWidget,
-                               QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                               QTextEdit, QLineEdit, QProgressBar, QCheckBox,
-                               QComboBox, QFileDialog, QGroupBox, QSplitter,
-                               QListWidget, QGridLayout, QRadioButton,
-                               QButtonGroup, QToolBar, QStatusBar, QScrollArea, QFrame, QMessageBox, QSpinBox, QDialog, QDialogButtonBox,
-                               QProgressDialog, QListWidgetItem)
-from PySide6.QtCore import Qt, Signal, Slot, QSize, QTimer, QThread, QSettings, QWaitCondition, QMutex, QUrl
-from PySide6.QtGui import QIcon, QAction, QFont, QPixmap, QDesktopServices
-import yt_dlp
 import json
+import subprocess
+import platform
+import traceback
 import datetime
+import shutil
+import tempfile
+import glob
+import ssl
+import threading
+import random
+import yt_dlp
+from pathlib import Path
 
-# 導入工具函數
-from utils import log, get_system_info, create_error_log, apply_ssl_fix, get_supported_platforms
-from src.utils import identify_platform
+# 添加當前目錄到路徑
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+# 導入自定義模組
+from utils import log, get_system_info, create_error_log, apply_ssl_fix, format_size, format_time, sanitize_filename, identify_platform, get_supported_platforms
+from download_thread import DownloadThread
+
+# 導入PySide6
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QUrl, QRect, QPoint, QMutex, QWaitCondition
+from PySide6.QtGui import QIcon, QPixmap, QDesktopServices, QColor, QPalette, QFont, QAction, QKeySequence
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QLabel, QLineEdit, QPushButton, QProgressBar, QComboBox,
+    QTabWidget, QScrollArea, QFrame, QSpinBox, QCheckBox,
+    QMessageBox, QFileDialog, QDialog, QGroupBox, QRadioButton,
+    QListWidget, QListWidgetItem, QSplitter, QMenu, QSystemTrayIcon,
+    QSlider, QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit,
+    QToolButton, QSizePolicy, QSpacerItem, QColorDialog, QFontDialog,
+    QButtonGroup, QGridLayout, QFormLayout, QStyledItemDelegate
+)
 
 def get_system_info():
     """獲取系統信息"""
@@ -804,6 +822,19 @@ class DownloadTab(QWidget):
         self.init_ui()
         # 初始化完成
         self._is_initializing = False
+    
+    def set_download_path(self, new_path):
+        """設置新的下載路徑"""
+        if self.download_path != new_path:
+            self.download_path = new_path
+            self.path_edit.setText(new_path)
+            log(f"下載路徑已更新為: {new_path}")
+    
+    def update_download_prefix(self, prefix):
+        """更新下載檔名前綴"""
+        if prefix:
+            self.prefix_combo.setCurrentText(prefix)
+            log(f"下載檔名前綴已更新為: {prefix}")
     
     def load_settings(self):
         """載入設定"""
@@ -2097,168 +2128,91 @@ class DownloadTab(QWidget):
             if delete_btn:
                 delete_btn.setText("刪除")
             
-            # 顯示重試按鈕
-            retry_btn = download_item.findChild(QPushButton, f"retry_btn_{filename}")
-            if retry_btn:
-                retry_btn.setVisible(True)
-                
-            # 更新總進度
-            self.update_total_progress()
-            
             return
         
-        # 檢查是否為年齡限制錯誤
-        is_age_restricted = False
-        if not success and ("age-restricted" in message.lower() or 
-                           "sign in to confirm your age" in message.lower() or 
-                           "confirm your age" in message.lower()):
-            is_age_restricted = True
-            log("檢測到年齡限制影片，需要使用 cookies 進行驗證")
-            
-            # 顯示年齡限制對話框，無論是否找到下載項
-            QTimer.singleShot(100, lambda: self.show_age_restriction_dialog())
-            
-        # 清理下載線程
-        try:
-            # 確保線程已經結束
-            if filename in self.download_threads:
-                if self.download_threads[filename].isRunning():
-                    log(f"等待下載線程結束: {filename}")
-                    self.download_threads[filename].cancel()
-                    self.download_threads[filename].wait(1000)  # 等待最多1秒
-                    
-                # 從字典中移除線程
-                thread = self.download_threads.pop(filename)
-                thread.deleteLater()  # 確保線程對象被正確刪除
-                log(f"已清理下載線程: {filename}")
-        except Exception as e:
-            log(f"清理下載線程時發生錯誤: {str(e)}")
-            
-        # 更新UI
-        progress_bar = download_item.findChild(QProgressBar, f"progress_{filename}")
-        status_label = download_item.findChild(QLabel, f"status_{filename}")
-        eta_label = download_item.findChild(QLabel, f"eta_{filename}")
-        speed_label = download_item.findChild(QLabel, f"speed_{filename}")
-        
-        # 根據下載結果更新狀態
+        # 處理其他情況
         if success:
-            # 下載成功 - 顯示完成狀態
-            progress_bar.setValue(100)
-            
-            # 獲取平台信息
-            platform_name = "未知"
-            if filename in self.download_items and 'platform_info' in self.download_items[filename]:
-                platform_name = self.download_items[filename]['platform_info']['name']
-            
-            status_label.setText(f"{platform_name}影片已完成 ✅")
-            status_label.setStyleSheet("color: green; font-weight: bold;")
-            eta_label.setText("完成")
-            speed_label.setText("--")
-            
-            # 更新圖標為成功狀態
-            icon_label = download_item.findChild(QLabel, f"icon_{filename}")
-            if icon_label:
-                icon_label.setText("✅")
-                icon_label.setStyleSheet("color: #5cb85c; font-size: 14pt; font-weight: bold;")
-            
-            # 更新進度條為綠色
-            progress_bar.setStyleSheet("""
-                QProgressBar {
-                    border: 1px solid #cccccc;
-                    border-radius: 5px;
-                    text-align: center;
-                    background-color: #f5f5f5;
-                    color: black;
-                    font-weight: bold;
-                }
-                QProgressBar::chunk {
-                    background-color: #5cb85c;
-                    border-radius: 5px;
-                }
-            """)
-            
-            # 更新按鈕狀態
-            pause_btn = download_item.findChild(QPushButton, f"pause_btn_{filename}")
-            if pause_btn:
-                pause_btn.setEnabled(False)
-                pause_btn.setText("已完成")
-            
-            delete_btn = download_item.findChild(QPushButton, f"delete_btn_{filename}")
-            if delete_btn:
-                delete_btn.setText("刪除")
-            
-            # 顯示下載完成對話框
-            QTimer.singleShot(100, lambda: self.show_download_complete_dialog(filename, file_path))
-            
-            # 通知已下載檔案頁面更新
-            self.notify_download_completed(file_path)
-            
-            # 延遲5秒後自動清除該下載項目
-            QTimer.singleShot(5000, lambda: self.auto_remove_completed_item(filename))
-            
+            # 下載成功
+            if file_path and os.path.exists(file_path):
+                # 顯示完成對話框
+                self.show_download_complete_dialog(filename, file_path)
+                
+                # 更新UI
+                progress_bar = download_item.findChild(QProgressBar, f"progress_{filename}")
+                status_label = download_item.findChild(QLabel, f"status_{filename}")
+                eta_label = download_item.findChild(QLabel, f"eta_{filename}")
+                speed_label = download_item.findChild(QLabel, f"speed_{filename}")
+                
+                if progress_bar and status_label:
+                    progress_bar.setValue(100)
+                    status_label.setText("下載完成 ✓")
+                    status_label.setStyleSheet("color: green; font-weight: bold;")
+                    
+                if eta_label:
+                    eta_label.setText("完成")
+                
+                if speed_label:
+                    speed_label.setText("--")
+                
+                # 更新圖標為完成狀態
+                icon_label = download_item.findChild(QLabel, f"icon_{filename}")
+                if icon_label:
+                    icon_label.setText("✓")
+                    icon_label.setStyleSheet("color: #5cb85c; font-size: 14pt; font-weight: bold;")
+                
+                # 更新進度條為綠色
+                if progress_bar:
+                    progress_bar.setStyleSheet("""
+                        QProgressBar {
+                            border: 1px solid #cccccc;
+                            border-radius: 5px;
+                            text-align: center;
+                            background-color: #f5f5f5;
+                            color: black;
+                            font-weight: bold;
+                        }
+                        QProgressBar::chunk {
+                            background-color: #5cb85c;
+                            border-radius: 5px;
+                        }
+                    """)
+                
+                # 更新按鈕狀態
+                pause_btn = download_item.findChild(QPushButton, f"pause_btn_{filename}")
+                if pause_btn:
+                    pause_btn.setEnabled(False)
+                    pause_btn.setText("完成")
+                
+                delete_btn = download_item.findChild(QPushButton, f"delete_btn_{filename}")
+                if delete_btn:
+                    delete_btn.setText("刪除")
+                
+                # 通知已下載檔案頁面更新
+                self.notify_download_completed(file_path)
+                
+                # 自動移除已完成項目（如果設置了）
+                if self.auto_remove_completed:
+                    # 延遲移除，讓用戶有時間看到完成狀態
+                    QTimer.singleShot(3000, lambda: self.auto_remove_completed_item(filename))
+            else:
+                # 文件不存在，顯示錯誤
+                self.show_error_dialog(filename, "下載失敗：找不到下載的檔案")
+                # 顯示外部下載按鈕
+                QTimer.singleShot(1000, lambda: self.show_external_download_button(filename))
         else:
-            # 下載失敗 - 保留項目並顯示錯誤狀態
-            progress_bar.setValue(0)
-            
-            # 獲取平台信息
-            platform_name = "未知"
-            if filename in self.download_items and 'platform_info' in self.download_items[filename]:
-                platform_name = self.download_items[filename]['platform_info']['name']
-            
-            status_label.setText(f"{platform_name}影片下載失敗 ❌")
-            status_label.setStyleSheet("color: red; font-weight: bold;")
-            eta_label.setText("--")
-            speed_label.setText("--")
-            
-            # 更新圖標為錯誤狀態
-            icon_label = download_item.findChild(QLabel, f"icon_{filename}")
-            if icon_label:
-                icon_label.setText("❌")
-                icon_label.setStyleSheet("color: #d9534f; font-size: 14pt; font-weight: bold;")
-            
-            # 更新進度條為紅色
-            progress_bar.setStyleSheet("""
-                QProgressBar {
-                    border: 1px solid #cccccc;
-                    border-radius: 5px;
-                    text-align: center;
-                    background-color: #f5f5f5;
-                    color: black;
-                    font-weight: bold;
-                }
-                QProgressBar::chunk {
-                    background-color: #d9534f;
-                    border-radius: 5px;
-                }
-            """)
-            
-            # 更新按鈕狀態
-            pause_btn = download_item.findChild(QPushButton, f"pause_btn_{filename}")
-            if pause_btn:
-                pause_btn.setEnabled(False)
-                pause_btn.setText("失敗")
-            
-            delete_btn = download_item.findChild(QPushButton, f"delete_btn_{filename}")
-            if delete_btn:
-                delete_btn.setText("刪除")
-            
-            # 顯示重試按鈕
-            retry_btn = download_item.findChild(QPushButton, f"retry_btn_{filename}")
-            if retry_btn:
-                retry_btn.setVisible(True)
-            
-            # 關閉可能存在的錯誤對話框
-            if filename in self.error_dialogs and self.error_dialogs[filename].isVisible():
-                try:
-                    self.error_dialogs[filename].close()
-                    del self.error_dialogs[filename]
-                except Exception as e:
-                    log(f"關閉現有錯誤對話框時發生錯誤: {str(e)}")
-            
-            # 如果是年齡限制錯誤，不顯示標準錯誤對話框
-            if not is_age_restricted:
-                # 延遲顯示錯誤對話框，確保UI更新完成
-                QTimer.singleShot(500, lambda: self.show_error_dialog(filename, message))
+            # 下載失敗
+            self.show_error_dialog(filename, message)
+            # 顯示外部下載按鈕
+            QTimer.singleShot(1000, lambda: self.show_external_download_button(filename))
+        
+        # 清理下載線程
+        if filename in self.download_threads:
+            try:
+                thread = self.download_threads.pop(filename)
+                thread.deleteLater()
+                log(f"已清理下載線程: {filename}")
+            except Exception as e:
+                log(f"清理下載線程時發生錯誤: {str(e)}")
         
         # 更新總進度
         self.update_total_progress()
@@ -2857,37 +2811,64 @@ class DownloadTab(QWidget):
         
         layout.addWidget(solutions_group)
         
-        # 如果是Twitter/X平台，添加外部工具提示
-        if platform_name in ["X", "Twitter"] or "twitter" in url.lower() or "x.com" in url.lower():
-            external_tool_group = QGroupBox("外部下載工具")
-            external_tool_layout = QVBoxLayout(external_tool_group)
-            
-            external_tool_label = QLabel("Twitter/X 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具：")
-            external_tool_layout.addWidget(external_tool_label)
-            
-            # 創建外部工具按鈕
-            external_tool_btn = QPushButton("🌐 打開 Twitter Video Downloader")
-            external_tool_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #dc3545;
-                    color: white;
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                    font-weight: bold;
-                    font-size: 12pt;
-                }
-                QPushButton:hover {
-                    background-color: #c82333;
-                }
-            """)
-            
-            # 設置URL
+        # 添加外部下載工具區塊
+        external_tool_group = QGroupBox("外部下載工具")
+        external_tool_layout = QVBoxLayout(external_tool_group)
+        
+        # 設定按鈕文字和URL
+        button_text = "外部下載工具"
+        external_url = f"https://savefrom.net/?url={url}"
+        
+        # 根據平台設置不同的按鈕文字和URL
+        if platform_name == "Instagram" or "instagram.com" in url.lower():
+            button_text = "IG下載器"
+            external_url = f"https://saveclip.app/zh-tw/?url={url}"
+            external_tool_layout.addWidget(QLabel("Instagram 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
+        elif platform_name in ["X", "Twitter"] or "twitter.com" in url.lower() or "x.com" in url.lower():
+            button_text = "X下載器"
             external_url = f"https://twittervideodownloader.com/?url={url}"
-            external_tool_btn.clicked.connect(lambda: self.open_external_downloader(external_url))
-            external_tool_layout.addWidget(external_tool_btn)
-            
-            layout.addWidget(external_tool_group)
+            external_tool_layout.addWidget(QLabel("Twitter/X 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
+        elif platform_name in ["TikTok", "抖音"] or "tiktok.com" in url.lower() or "douyin.com" in url.lower():
+            button_text = "TikTok下載器"
+            external_url = f"https://tiktokio.com/zh_tw/?url={url}"
+            external_tool_layout.addWidget(QLabel("TikTok/抖音 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
+        elif platform_name == "Facebook" or "facebook.com" in url.lower() or "fb.com" in url.lower() or "fb.watch" in url.lower():
+            button_text = "FB下載器"
+            external_url = f"https://fdown.net/?url={url}"
+            external_tool_layout.addWidget(QLabel("Facebook 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
+        elif platform_name == "Threads" or "threads.net" in url.lower():
+            button_text = "Threads下載器"
+            external_url = f"https://threadsdownloader.com/?url={url}"
+            external_tool_layout.addWidget(QLabel("Threads 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
+        elif platform_name == "Bilibili" or "bilibili.com" in url.lower() or "b23.tv" in url.lower():
+            button_text = "B站下載器"
+            external_url = f"https://bilibili.iiilab.com/?url={url}"
+            external_tool_layout.addWidget(QLabel("Bilibili 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
+        else:
+            external_tool_layout.addWidget(QLabel("您可以嘗試使用外部下載工具來下載此影片："))
+        
+        # 創建外部工具按鈕
+        external_tool_btn = QPushButton(f"🌐 {button_text}")
+        external_tool_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d9534f;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12pt;
+            }
+            QPushButton:hover {
+                background-color: #c9302c;
+            }
+        """)
+        
+        # 設置點擊事件
+        external_tool_btn.clicked.connect(lambda: self.open_external_downloader(external_url))
+        external_tool_layout.addWidget(external_tool_btn)
+        
+        layout.addWidget(external_tool_group)
         
         # 按鈕區域
         buttons_layout = QHBoxLayout()
@@ -3043,7 +3024,7 @@ class DownloadTab(QWidget):
             platform_icon = "📷"
             platform_title = "Instagram Downloader"
             platform_desc = "專門用於下載 Instagram 影片和照片的線上工具"
-            tool_url = f"https://instadownloader.co/zh-tw/?url={url}"
+            tool_url = f"https://saveclip.app/zh-tw/?url={url}"
             tool_name = "IG下載器"
         elif platform_name == "TikTok":
             platform_icon = "🎵"
@@ -3581,7 +3562,7 @@ class DownloadTab(QWidget):
         elif 'twitter.com' in url.lower() or 'x.com' in url.lower():
             external_url = f"https://twittervideodownloader.com/?url={url}"
         elif 'instagram.com' in url.lower():
-            external_url = f"https://instadownloader.co/zh-tw/?url={url}"
+            external_url = f"https://saveclip.app/zh-tw/?url={url}"
         elif 'bilibili.com' in url.lower() or 'b23.tv' in url.lower():
             external_url = f"https://bilibili.iiilab.com/?url={url}"
         else:
@@ -3592,36 +3573,52 @@ class DownloadTab(QWidget):
         self.open_external_downloader(external_url)
         
         # 記錄日誌
-        self.log_message(f"已打開外部下載工具: {external_url}")
+        log(f"已打開外部下載工具: {external_url}")
 
     def show_external_download_button(self, filename):
         """顯示外部下載按鈕"""
         # 檢查是否有 external_btn 按鈕
         if filename in self.download_items and 'external_btn' in self.download_items[filename]:
             external_button = self.download_items[filename]['external_btn']
-            external_button.setVisible(True)
             
-            # 根據平台更新按鈕文字
+            # 獲取URL和平台信息
             url = self.download_items.get(filename, {}).get('url', '')
             platform_name = "未知"
             if filename in self.download_items and 'platform_info' in self.download_items[filename]:
                 platform_name = self.download_items[filename]['platform_info']['name']
             
             # 根據平台設置按鈕文字
+            button_text = "外部下載"
             if platform_name == "TikTok" or "tiktok.com" in url or "douyin.com" in url:
-                external_button.setText("TikTok下載器")
+                button_text = "TikTok下載器"
             elif platform_name == "Facebook" or "facebook.com" in url or "fb.com" in url:
-                external_button.setText("FB下載器")
+                button_text = "FB下載器"
             elif platform_name == "Instagram" or "instagram.com" in url:
-                external_button.setText("IG下載器")
+                button_text = "IG下載器"
             elif platform_name == "X" or "twitter.com" in url or "x.com" in url:
-                external_button.setText("X下載器")
+                button_text = "X下載器"
             elif platform_name == "Bilibili" or "bilibili.com" in url or "b23.tv" in url:
-                external_button.setText("B站下載器")
+                button_text = "B站下載器"
             elif platform_name == "Threads" or "threads.net" in url:
-                external_button.setText("Threads下載器")
-            else:
-                external_button.setText("外部下載")
+                button_text = "Threads下載器"
+            
+            # 設置按鈕文字和樣式
+            external_button.setText(button_text)
+            external_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #d9534f;
+                    color: white;
+                    border-radius: 3px;
+                    padding: 3px 8px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #c9302c;
+                }
+            """)
+            
+            # 顯示按鈕
+            external_button.setVisible(True)
                 
             # 調整下載項目的高度以確保按鈕顯示完整
             if 'widget' in self.download_items[filename]:
@@ -3630,29 +3627,45 @@ class DownloadTab(QWidget):
         # 向下兼容舊版按鈕
         elif filename in self.download_buttons and 'external' in self.download_buttons[filename]:
             external_button = self.download_buttons[filename]['external']
-            external_button.setVisible(True)
             
-            # 根據平台更新按鈕文字
+            # 獲取URL和平台信息
             url = self.download_items.get(filename, {}).get('url', '')
             platform_name = "未知"
             if filename in self.download_items and 'platform_info' in self.download_items[filename]:
                 platform_name = self.download_items[filename]['platform_info']['name']
             
             # 根據平台設置按鈕文字
+            button_text = "外部下載"
             if platform_name == "TikTok" or "tiktok.com" in url or "douyin.com" in url:
-                external_button.setText("TikTok下載器")
+                button_text = "TikTok下載器"
             elif platform_name == "Facebook" or "facebook.com" in url or "fb.com" in url:
-                external_button.setText("FB下載器")
+                button_text = "FB下載器"
             elif platform_name == "Instagram" or "instagram.com" in url:
-                external_button.setText("IG下載器")
+                button_text = "IG下載器"
             elif platform_name == "X" or "twitter.com" in url or "x.com" in url:
-                external_button.setText("X下載器")
+                button_text = "X下載器"
             elif platform_name == "Bilibili" or "bilibili.com" in url or "b23.tv" in url:
-                external_button.setText("B站下載器")
+                button_text = "B站下載器"
             elif platform_name == "Threads" or "threads.net" in url:
-                external_button.setText("Threads下載器")
-            else:
-                external_button.setText("外部下載")
+                button_text = "Threads下載器"
+            
+            # 設置按鈕文字和樣式
+            external_button.setText(button_text)
+            external_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #d9534f;
+                    color: white;
+                    border-radius: 3px;
+                    padding: 3px 8px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #c9302c;
+                }
+            """)
+            
+            # 顯示按鈕
+            external_button.setVisible(True)
                 
             # 調整表格行高以確保按鈕顯示完整
             for row in range(self.download_table.rowCount()):
@@ -4982,16 +4995,17 @@ class MainWindow(QMainWindow):
         """初始化"""
         super().__init__()
         self.setWindowTitle("多平台影片下載器")
-        self.setGeometry(100, 100, 1000, 700)
-        self.setMinimumSize(800, 600)
+        
+        # 默認下載路徑設置為用戶的下載目錄
+        self.download_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        
+        # 載入視窗大小和位置設定
+        self.load_window_settings()
         
         # 設置應用程式圖示
         icon_path = os.path.join(os.path.dirname(__file__), "../assets/icon.png")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-        
-        # 默認下載路徑設置為用戶的下載目錄
-        self.download_path = os.path.join(os.path.expanduser("~"), "Downloads")
         
         # 初始化UI
         self.init_ui()
@@ -5001,6 +5015,36 @@ class MainWindow(QMainWindow):
         
         # 顯示狀態欄
         self.statusBar().showMessage("就緒")
+    
+    def load_window_settings(self):
+        """載入視窗大小和位置設定"""
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    
+                    # 載入視窗大小和位置
+                    if "window_geometry" in settings:
+                        geometry = settings["window_geometry"]
+                        if "x" in geometry and "y" in geometry and "width" in geometry and "height" in geometry:
+                            self.setGeometry(
+                                geometry["x"], 
+                                geometry["y"], 
+                                geometry["width"], 
+                                geometry["height"]
+                            )
+                            log(f"已載入視窗大小和位置設定: {geometry}")
+                            return
+            
+            # 如果沒有設定或設定不完整，使用預設值
+            self.setGeometry(100, 100, 1000, 700)
+            self.setMinimumSize(800, 600)
+            
+        except Exception as e:
+            log(f"載入視窗設定失敗: {str(e)}")
+            self.setGeometry(100, 100, 1000, 700)
+            self.setMinimumSize(800, 600)
         
     def init_ui(self):
         # 創建中央部件和佈局
@@ -5075,9 +5119,46 @@ class MainWindow(QMainWindow):
             }
         """)
     
+    def save_window_settings(self):
+        """保存視窗大小和位置設定"""
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            
+            # 讀取現有設定（如果存在）
+            settings = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    try:
+                        settings = json.load(f)
+                    except:
+                        settings = {}
+            
+            # 獲取當前視窗位置和大小
+            geometry = self.geometry()
+            window_geometry = {
+                "x": geometry.x(),
+                "y": geometry.y(),
+                "width": geometry.width(),
+                "height": geometry.height()
+            }
+            
+            # 更新設定
+            settings["window_geometry"] = window_geometry
+            
+            # 保存設定
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(settings, f, ensure_ascii=False, indent=4)
+                
+            log(f"已保存視窗大小和位置設定: {window_geometry}")
+        except Exception as e:
+            log(f"保存視窗設定失敗: {str(e)}")
+    
     def closeEvent(self, event):
         """關閉視窗時的處理"""
         log("關閉主視窗...")
+        
+        # 保存視窗大小和位置
+        self.save_window_settings()
         
         # 檢查是否有正在進行的下載
         active_downloads = False
