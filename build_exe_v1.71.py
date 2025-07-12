@@ -2,237 +2,201 @@
 # -*- coding: utf-8 -*-
 
 """
-多平台影片下載器 - 構建可執行文件腳本
-版本: 1.71
+多平台影片下載器 - 構建EXE腳本
+版本：1.71
 """
 
 import os
 import sys
 import shutil
 import subprocess
-import platform
 import time
-import re
+from pathlib import Path
 
-# 檢查 Python 版本
-if sys.version_info < (3, 6):
-    print("錯誤: 需要 Python 3.6 或更高版本")
-    sys.exit(1)
-
-# 檢查必要的模組
-try:
-    import PyInstaller
-except ImportError:
-    print("正在安裝 PyInstaller...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
-
-# 獲取當前目錄
-current_dir = os.path.dirname(os.path.abspath(__file__))
-src_dir = os.path.join(current_dir, "src")
-build_dir = os.path.join(current_dir, "build")
-dist_dir = os.path.join(current_dir, "dist")
-temp_dir = os.path.join(current_dir, "build_temp")
-
-# 確保目錄存在
-os.makedirs(temp_dir, exist_ok=True)
+# 確保當前目錄是腳本所在目錄
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # 版本信息
-version = "1.71"
-app_name = "多平台影片下載器"
-exe_name = f"{app_name}_v{version}"
+VERSION = "1.71"
+APP_NAME = "多平台影片下載器"
+
+# 構建目錄
+BUILD_DIR = "build_temp"
+DIST_DIR = os.path.join(BUILD_DIR, "dist")
+SPEC_DIR = os.path.join(BUILD_DIR, "spec")
+
+# 確保構建目錄存在
+os.makedirs(BUILD_DIR, exist_ok=True)
+os.makedirs(DIST_DIR, exist_ok=True)
+os.makedirs(SPEC_DIR, exist_ok=True)
+
+# 確保assets目錄存在
+if not os.path.exists("assets"):
+    os.makedirs("assets", exist_ok=True)
+    print("已創建assets目錄")
+
+# 確保assets目錄中有icon.ico文件
+if not os.path.exists(os.path.join("assets", "icon.ico")):
+    print("警告: assets/icon.ico不存在，將使用默認圖標")
+    # 使用默認圖標路徑
+    icon_path = ""
+else:
+    icon_path = "assets/icon.ico"
 
 # 更新版本信息文件
-with open(os.path.join(temp_dir, "version_info.txt"), "w", encoding="utf-8") as f:
-    f.write(f"版本: {version}\n")
-    f.write(f"構建時間: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-    f.write(f"系統: {platform.system()} {platform.version()}\n")
-    f.write(f"Python: {platform.python_version()}\n")
+with open(os.path.join(BUILD_DIR, "version_info.txt"), "w", encoding="utf-8") as f:
+    f.write(f"Version: {VERSION}\n")
+    f.write(f"Build Date: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-print(f"=== 開始構建 {app_name} v{version} ===")
+print(f"開始構建 {APP_NAME} v{VERSION}...")
 
-# 清理之前的構建
-if os.path.exists(build_dir):
-    print("清理構建目錄...")
-    shutil.rmtree(build_dir, ignore_errors=True)
-if os.path.exists(dist_dir):
-    print("清理發布目錄...")
-    shutil.rmtree(dist_dir, ignore_errors=True)
-
-# 安裝/更新依賴
-print("檢查並安裝依賴...")
-with open(os.path.join(current_dir, "requirements.txt"), "r") as f:
-    requirements = f.read().splitlines()
-
-for req in requirements:
-    if req and not req.startswith("#"):
-        print(f"安裝 {req}...")
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", req])
-        except subprocess.CalledProcessError:
-            print(f"警告: 安裝 {req} 失敗，嘗試繼續...")
-
-# 創建啟動腳本
-print("創建啟動腳本...")
-start_script = os.path.join(current_dir, f"start_v{version}.py")
-with open(start_script, "w", encoding="utf-8") as f:
-    f.write(f"""#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-\"\"\"
-多平台影片下載器 - 啟動腳本
-版本: {version}
-\"\"\"
-
-import os
-import sys
-import subprocess
-import importlib.util
-import time
-
-# 添加當前目錄到路徑
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
-
-# 添加src目錄到路徑
-src_dir = os.path.join(current_dir, "src")
-if src_dir not in sys.path:
-    sys.path.insert(0, src_dir)
-
-# 檢查並安裝必要的套件
-required_packages = ["yt-dlp", "PySide6"]
+# 檢查必要的套件
+required_packages = ["PyInstaller", "PySide6", "yt-dlp"]
 
 def install_package(package):
-    \"\"\"安裝套件\"\"\"
-    print(f"正在安裝 {{package}}...")
+    """安裝套件"""
+    print(f"正在安裝 {package}...")
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", package])
         return True
     except Exception as e:
-        print(f"安裝 {{package}} 失敗: {{str(e)}}")
+        print(f"安裝 {package} 失敗: {str(e)}")
         return False
 
 # 安裝必要的套件
 for package in required_packages:
     try:
-        importlib.import_module(package)
+        __import__(package.lower().replace("-", "_"))
     except ImportError:
         if not install_package(package):
-            print(f"無法安裝 {{package}}，程式可能無法正常運行")
+            print(f"無法安裝 {package}，構建過程可能會失敗")
             time.sleep(3)
 
-# 啟動主程式
+# 清理舊的構建文件
+print("清理舊的構建文件...")
+for dir_to_clean in [DIST_DIR, SPEC_DIR]:
+    if os.path.exists(dir_to_clean):
+        try:
+            shutil.rmtree(dir_to_clean)
+            os.makedirs(dir_to_clean, exist_ok=True)
+            print(f"已清理 {dir_to_clean}")
+        except Exception as e:
+            print(f"清理 {dir_to_clean} 失敗: {str(e)}")
+
+# 準備數據文件
+data_files = []
+# 添加assets目錄（如果存在）
+if os.path.exists("assets") and os.listdir("assets"):
+    data_files.append(("assets", "assets"))
+# 添加ffmpeg_bin目錄（如果存在）
+if os.path.exists("ffmpeg_bin"):
+    data_files.append(("ffmpeg_bin", "ffmpeg_bin"))
+# 添加VERSION文件（如果存在）
+if os.path.exists("VERSION"):
+    data_files.append(("VERSION", "."))
+# 添加版本信息文件
+version_info_path = os.path.join(BUILD_DIR, "version_info.txt")
+if os.path.exists(version_info_path):
+    data_files.append((version_info_path, BUILD_DIR))
+
+# 構建啟動器
+print("開始構建啟動器...")
 try:
-    from src.tabbed_gui_demo import main
-    main()
-except ImportError as e:
-    print(f"導入主程式失敗: {{str(e)}}")
-    print("嘗試直接執行主程式...")
-    try:
-        # 直接執行主程式檔案
-        script_path = os.path.join(src_dir, "tabbed_gui_demo.py")
-        if os.path.exists(script_path):
-            subprocess.call([sys.executable, script_path])
+    # 構建命令基本部分
+    pyinstaller_cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--distpath", DIST_DIR,
+        "--specpath", SPEC_DIR,
+    ]
+    
+    # 添加圖標（如果存在）
+    if icon_path:
+        pyinstaller_cmd.extend(["--icon", icon_path])
+    
+    # 添加數據文件
+    for src, dst in data_files:
+        pyinstaller_cmd.extend(["--add-data", f"{src};{dst}"])
+    
+    # 添加隱藏導入
+    hidden_imports = ["PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets"]
+    for imp in hidden_imports:
+        pyinstaller_cmd.extend(["--hidden-import", imp])
+    
+    # 構建簡易版啟動器（無控制台）
+    simple_cmd = pyinstaller_cmd.copy()
+    simple_cmd.extend([
+        "--name", f"start_v{VERSION}",
+        "--noconsole",
+        "start_v1.71.py"
+    ])
+    print("執行命令:", " ".join(simple_cmd))
+    subprocess.check_call(simple_cmd)
+    print("簡易版啟動器構建完成")
+
+    # 構建完整版啟動器（帶控制台）
+    full_cmd = pyinstaller_cmd.copy()
+    full_cmd.extend([
+        "--name", f"start_downloader_v{VERSION}",
+        "start_downloader_v1.71.py"
+    ])
+    print("執行命令:", " ".join(full_cmd))
+    subprocess.check_call(full_cmd)
+    print("完整版啟動器構建完成")
+
+    print("構建過程完成")
+    
+    # 創建發布包
+    release_dir = f"YT_Downloader_v{VERSION}"
+    release_path = os.path.join(BUILD_DIR, release_dir)
+    
+    # 清理舊的發布目錄
+    if os.path.exists(release_path):
+        shutil.rmtree(release_path)
+    
+    # 創建發布目錄結構
+    os.makedirs(release_path, exist_ok=True)
+    
+    # 複製文件到發布目錄
+    print(f"正在創建發布包 {release_dir}...")
+    
+    # 複製EXE文件
+    simple_exe = os.path.join(DIST_DIR, f"start_v{VERSION}.exe")
+    full_exe = os.path.join(DIST_DIR, f"start_downloader_v{VERSION}.exe")
+    
+    if os.path.exists(simple_exe):
+        shutil.copy(simple_exe, release_path)
+    else:
+        print(f"警告: 找不到簡易版啟動器 {simple_exe}")
+        
+    if os.path.exists(full_exe):
+        shutil.copy(full_exe, release_path)
+    else:
+        print(f"警告: 找不到完整版啟動器 {full_exe}")
+    
+    # 複製文檔
+    doc_files = ["README.md", "LICENSE", f"RELEASE_NOTES_V{VERSION}.md"]
+    for doc in doc_files:
+        if os.path.exists(doc):
+            shutil.copy(doc, release_path)
         else:
-            print(f"找不到主程式檔案: {{script_path}}")
-    except Exception as e:
-        print(f"執行主程式時發生錯誤: {{str(e)}}")
+            print(f"警告: 找不到文檔 {doc}")
     
-    # 等待用戶輸入，避免視窗立即關閉
-    input("按Enter鍵退出...") 
-""")
-
-# 創建簡化的啟動腳本
-simple_start_script = os.path.join(current_dir, f"start_downloader_v{version}.py")
-shutil.copy(start_script, simple_start_script)
-
-# 構建可執行文件
-print("構建可執行文件...")
-icon_path = os.path.join(current_dir, "assets", "icon.ico")
-if not os.path.exists(icon_path):
-    icon_path = os.path.join(current_dir, "assets", "icon.png")
-
-# 確定 ffmpeg 目錄
-ffmpeg_dir = os.path.join(current_dir, "ffmpeg_bin")
-
-# 構建命令
-cmd = [
-    "pyinstaller",
-    "--noconfirm",
-    "--clean",
-    "--name", exe_name,
-    "--add-data", f"{src_dir};src",
-    "--add-data", f"{temp_dir};build_temp",
-]
-
-# 添加 ffmpeg 目錄（如果存在）
-if os.path.exists(ffmpeg_dir):
-    cmd.extend(["--add-data", f"{ffmpeg_dir};ffmpeg_bin"])
-
-# 添加圖標（如果存在）
-if os.path.exists(icon_path):
-    cmd.extend(["--icon", icon_path])
-
-# 添加其他選項
-cmd.extend([
-    "--onefile",
-    "--windowed",
-    start_script
-])
-
-# 執行構建
-print("執行 PyInstaller...")
-print(" ".join(cmd))
-subprocess.call(cmd)
-
-# 複製必要的文件到發布目錄
-print("複製必要文件到發布目錄...")
-if os.path.exists(dist_dir):
-    # 複製 README 和 LICENSE
-    for file in ["README.md", "LICENSE", "RELEASE_NOTES_V1.71.md"]:
-        if os.path.exists(os.path.join(current_dir, file)):
-            shutil.copy(os.path.join(current_dir, file), os.path.join(dist_dir, file))
+    # 創建ZIP文件
+    print("正在創建ZIP文件...")
+    zip_path = os.path.join(BUILD_DIR, f"YT_Downloader_v{VERSION}")
+    if os.path.exists(f"{zip_path}.zip"):
+        os.remove(f"{zip_path}.zip")
     
-    # 創建空的 cookies.txt 文件
-    with open(os.path.join(dist_dir, "cookies.txt"), "w") as f:
-        f.write("# 在此處放置您的 cookies\n")
+    shutil.make_archive(zip_path, 'zip', BUILD_DIR, release_dir)
     
-    # 創建使用說明
-    with open(os.path.join(dist_dir, "使用說明.md"), "w", encoding="utf-8") as f:
-        f.write(f"""# {app_name} v{version} 使用說明
+    print(f"發布包已創建: {zip_path}.zip")
+    
+except Exception as e:
+    print(f"構建過程中發生錯誤: {str(e)}")
+    import traceback
+    traceback.print_exc()
 
-## 基本使用
-1. 運行 `{exe_name}.exe` 啟動程式
-2. 在輸入框中貼上影片連結（支援多個連結，每行一個）
-3. 選擇下載格式和解析度
-4. 點擊「開始下載」按鈕
-
-## 支援的平台
-- YouTube
-- TikTok / 抖音
-- Facebook
-- Instagram
-- Bilibili
-- X (Twitter)
-- 更多平台持續增加中...
-
-## 特殊功能
-- 批量下載：每行輸入一個連結，可同時下載多個影片
-- 格式選擇：支援下載最高品質、僅視頻、僅音訊等多種格式
-- 解析度選擇：可選擇不同解析度
-- 自動合併：自動合併視頻和音訊
-- 檔名前綴：可添加自定義前綴
-- 視窗大小記憶：程式會記住您上次調整的視窗大小和位置
-
-## 常見問題
-- 如果下載失敗，請嘗試使用不同的格式或解析度
-- 某些需要登入的內容可能需要提供 cookies.txt 檔案
-- 如遇到問題，請查看錯誤訊息或嘗試使用錯誤對話框中提供的外部下載工具
-
-## 更新日誌
-請查看 `RELEASE_NOTES_V{version}.md` 檔案了解最新更新內容。
-""")
-
-    print(f"發布目錄準備完成: {dist_dir}")
-
-print(f"=== {app_name} v{version} 構建完成 ===") 
+print("構建腳本執行完成")
+input("按Enter鍵退出...") 

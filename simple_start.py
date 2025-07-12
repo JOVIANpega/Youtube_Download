@@ -2,14 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-多平台影片下載器 - 啟動腳本
+多平台影片下載器 - 簡易啟動腳本
 """
 
 import os
 import sys
 import subprocess
-import importlib.util
-import time
 
 # 添加當前目錄到路徑
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,28 +18,6 @@ if current_dir not in sys.path:
 src_dir = os.path.join(current_dir, "src")
 if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
-
-# 檢查並安裝必要的套件
-required_packages = ["yt-dlp", "PySide6"]
-
-def install_package(package):
-    """安裝套件"""
-    print(f"正在安裝 {package}...")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-        return True
-    except Exception as e:
-        print(f"安裝 {package} 失敗: {str(e)}")
-        return False
-
-# 安裝必要的套件
-for package in required_packages:
-    try:
-        importlib.import_module(package)
-    except ImportError:
-        if not install_package(package):
-            print(f"無法安裝 {package}，程式可能無法正常運行")
-            time.sleep(3)
 
 # 啟動主程式
 try:

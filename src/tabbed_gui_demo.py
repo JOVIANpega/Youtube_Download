@@ -2661,7 +2661,7 @@ class DownloadTab(QWidget):
             elif size_bytes < 1024 * 1024 * 1024:
                 return f"{size_bytes/(1024*1024):.1f} MB"
             else:
-                return f"{size_bytes/(1024*1024*1024):.1f} GB"
+                return f"{size_bytes/(1024*1024*1024):.2f} GB"
         except Exception as e:
             log(f"格式化檔案大小時發生錯誤: {str(e)}")
             return "-- B"
@@ -2815,6 +2815,9 @@ class DownloadTab(QWidget):
         external_tool_group = QGroupBox("外部下載工具")
         external_tool_layout = QVBoxLayout(external_tool_group)
         
+        # 載入外部下載替代網址設定
+        external_urls = self.load_external_url_settings()
+        
         # 設定按鈕文字和URL
         button_text = "外部下載工具"
         external_url = f"https://savefrom.net/?url={url}"
@@ -2822,27 +2825,27 @@ class DownloadTab(QWidget):
         # 根據平台設置不同的按鈕文字和URL
         if platform_name == "Instagram" or "instagram.com" in url.lower():
             button_text = "IG下載器"
-            external_url = f"https://saveclip.app/zh-tw/?url={url}"
+            external_url = external_urls.get("instagram", "https://igram.io/?url={url}").format(url=url)
             external_tool_layout.addWidget(QLabel("Instagram 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
         elif platform_name in ["X", "Twitter"] or "twitter.com" in url.lower() or "x.com" in url.lower():
             button_text = "X下載器"
-            external_url = f"https://twittervideodownloader.com/?url={url}"
+            external_url = external_urls.get("twitter", "https://twittervideodownloader.com/?url={url}").format(url=url)
             external_tool_layout.addWidget(QLabel("Twitter/X 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
         elif platform_name in ["TikTok", "抖音"] or "tiktok.com" in url.lower() or "douyin.com" in url.lower():
             button_text = "TikTok下載器"
-            external_url = f"https://tiktokio.com/zh_tw/?url={url}"
+            external_url = external_urls.get("tiktok", "https://tiktokio.com/zh_tw/?url={url}").format(url=url)
             external_tool_layout.addWidget(QLabel("TikTok/抖音 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
         elif platform_name == "Facebook" or "facebook.com" in url.lower() or "fb.com" in url.lower() or "fb.watch" in url.lower():
             button_text = "FB下載器"
-            external_url = f"https://fdown.net/?url={url}"
+            external_url = external_urls.get("facebook", "https://fdown.net/?url={url}").format(url=url)
             external_tool_layout.addWidget(QLabel("Facebook 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
         elif platform_name == "Threads" or "threads.net" in url.lower():
             button_text = "Threads下載器"
-            external_url = f"https://threadsdownloader.com/?url={url}"
+            external_url = external_urls.get("threads", "https://threadsdownloader.com/?url={url}").format(url=url)
             external_tool_layout.addWidget(QLabel("Threads 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
         elif platform_name == "Bilibili" or "bilibili.com" in url.lower() or "b23.tv" in url.lower():
             button_text = "B站下載器"
-            external_url = f"https://bilibili.iiilab.com/?url={url}"
+            external_url = external_urls.get("bilibili", "https://bilibili.iiilab.com/?url={url}").format(url=url)
             external_tool_layout.addWidget(QLabel("Bilibili 影片有時需要特殊處理，您可以嘗試使用專門的外部下載工具："))
         else:
             external_tool_layout.addWidget(QLabel("您可以嘗試使用外部下載工具來下載此影片："))
@@ -3014,41 +3017,44 @@ class DownloadTab(QWidget):
         tool_url = "https://savefrom.net/"
         tool_name = "通用下載工具"
         
+        # 載入外部下載替代網址設定
+        external_urls = self.load_external_url_settings()
+        
         if platform_name == "X" or platform_name == "Twitter":
             platform_icon = "🐦"
             platform_title = "Twitter Video Downloader"
             platform_desc = "專門用於下載 Twitter/X.com 影片的線上工具"
-            tool_url = f"https://twittervideodownloader.com/?url={url}"
+            tool_url = external_urls.get("twitter", "https://twittervideodownloader.com/?url={url}").format(url=url)
             tool_name = "X下載器"
         elif platform_name == "Instagram":
             platform_icon = "📷"
             platform_title = "Instagram Downloader"
             platform_desc = "專門用於下載 Instagram 影片和照片的線上工具"
-            tool_url = f"https://saveclip.app/zh-tw/?url={url}"
+            tool_url = external_urls.get("instagram", "https://igram.io/?url={url}").format(url=url)
             tool_name = "IG下載器"
         elif platform_name == "TikTok":
             platform_icon = "🎵"
             platform_title = "TikTok Downloader"
             platform_desc = "專門用於下載 TikTok 影片的線上工具"
-            tool_url = f"https://tiktokio.com/zh_tw/?url={url}"
+            tool_url = external_urls.get("tiktok", "https://tiktokio.com/zh_tw/?url={url}").format(url=url)
             tool_name = "TikTok下載器"
         elif platform_name == "Facebook":
             platform_icon = "👍"
             platform_title = "Facebook Video Downloader"
             platform_desc = "專門用於下載 Facebook 影片的線上工具"
-            tool_url = f"https://fdown.net/?url={url}"
+            tool_url = external_urls.get("facebook", "https://fdown.net/?url={url}").format(url=url)
             tool_name = "FB下載器"
         elif platform_name == "Bilibili":
             platform_icon = "📺"
             platform_title = "Bilibili Downloader"
             platform_desc = "專門用於下載 Bilibili 影片的線上工具"
-            tool_url = f"https://bilibili.iiilab.com/?url={url}"
+            tool_url = external_urls.get("bilibili", "https://bilibili.iiilab.com/?url={url}").format(url=url)
             tool_name = "B站下載器"
         elif platform_name == "Threads":
             platform_icon = "🧵"
             platform_title = "Threads Downloader"
             platform_desc = "專門用於下載 Threads 影片和照片的線上工具"
-            tool_url = f"https://threadsdownloader.com/?url={url}"
+            tool_url = external_urls.get("threads", "https://threadsdownloader.com/?url={url}").format(url=url)
             tool_name = "Threads下載器"
         
         # 平台專屬下載工具區塊
@@ -3552,19 +3558,22 @@ class DownloadTab(QWidget):
             else:
                 url = self.download_items.get(filename, {}).get('url', '')
         
+        # 載入外部下載替代網址設定
+        external_urls = self.load_external_url_settings()
+        
         # 根據URL判斷平台並打開對應的下載網站
         if 'tiktok.com' in url.lower() or 'douyin.com' in url.lower():
-            external_url = f"https://tiktokio.com/zh_tw/?url={url}"
+            external_url = external_urls.get("tiktok", "https://tiktokio.com/zh_tw/?url={url}").format(url=url)
         elif 'facebook.com' in url.lower() or 'fb.com' in url.lower() or 'fb.watch' in url.lower():
-            external_url = f"https://fdown.net/?url={url}"
+            external_url = external_urls.get("facebook", "https://fdown.net/?url={url}").format(url=url)
         elif 'threads.net' in url.lower():
-            external_url = f"https://threadsdownloader.com/?url={url}"
+            external_url = external_urls.get("threads", "https://threadsdownloader.com/?url={url}").format(url=url)
         elif 'twitter.com' in url.lower() or 'x.com' in url.lower():
-            external_url = f"https://twittervideodownloader.com/?url={url}"
+            external_url = external_urls.get("twitter", "https://twittervideodownloader.com/?url={url}").format(url=url)
         elif 'instagram.com' in url.lower():
-            external_url = f"https://saveclip.app/zh-tw/?url={url}"
+            external_url = external_urls.get("instagram", "https://saveclip.app/zh-tw/?url={url}").format(url=url)
         elif 'bilibili.com' in url.lower() or 'b23.tv' in url.lower():
-            external_url = f"https://bilibili.iiilab.com/?url={url}"
+            external_url = external_urls.get("bilibili", "https://bilibili.iiilab.com/?url={url}").format(url=url)
         else:
             # 默認使用通用下載工具
             external_url = f"https://savefrom.net/?url={url}"
@@ -3574,6 +3583,34 @@ class DownloadTab(QWidget):
         
         # 記錄日誌
         log(f"已打開外部下載工具: {external_url}")
+        
+    def load_external_url_settings(self):
+        """載入外部下載替代網址設定"""
+        default_urls = {
+            "instagram": "https://igram.io/?url={url}",
+            "twitter": "https://twittervideodownloader.com/?url={url}",
+            "tiktok": "https://tiktokio.com/zh_tw/?url={url}",
+            "facebook": "https://fdown.net/?url={url}",
+            "threads": "https://threadsdownloader.com/?url={url}",
+            "bilibili": "https://bilibili.iiilab.com/?url={url}"
+        }
+        
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    
+                    # 載入外部下載替代網址設定
+                    if "external_urls" in settings:
+                        # 合併預設值和用戶設定
+                        external_urls = default_urls.copy()
+                        external_urls.update(settings["external_urls"])
+                        return external_urls
+        except Exception as e:
+            log(f"載入外部下載替代網址設定失敗: {str(e)}")
+            
+        return default_urls
 
     def show_external_download_button(self, filename):
         """顯示外部下載按鈕"""
@@ -4085,7 +4122,8 @@ class SettingsTab(QWidget):
             "網路設定", 
             "性能優化", 
             "命名與整理",
-            "平台支援"
+            "平台支援",
+            "外部下載替代網址"
         ])
         self.categories.setCurrentRow(0)
         categories_layout.addWidget(self.categories)
@@ -4100,6 +4138,7 @@ class SettingsTab(QWidget):
         self.settings_stack.addWidget(self.create_performance_settings())
         self.settings_stack.addWidget(self.create_naming_settings())
         self.settings_stack.addWidget(self.create_platform_settings())
+        self.settings_stack.addWidget(self.create_external_urls_settings())
         
         # 添加到主佈局
         layout.addWidget(categories_widget, 1)
@@ -4235,6 +4274,15 @@ class SettingsTab(QWidget):
             "retry_wait": self.wait_spin.value() if hasattr(self, "wait_spin") else 5,
             "timeout": self.timeout_spin.value() if hasattr(self, "timeout_spin") else 60,
             "disable_ssl": self.disable_ssl_cb.isChecked() if hasattr(self, "disable_ssl_cb") else True,
+            
+            # 外部下載替代網址設定
+            "external_urls": {
+                "instagram": self.ig_url_input.text() if hasattr(self, "ig_url_input") else "https://igram.io/?url={url}",
+                "twitter": self.twitter_url_input.text() if hasattr(self, "twitter_url_input") else "https://twittervideodownloader.com/?url={url}",
+                "tiktok": self.tiktok_url_input.text() if hasattr(self, "tiktok_url_input") else "https://tiktokio.com/zh_tw/?url={url}",
+                "facebook": self.facebook_url_input.text() if hasattr(self, "facebook_url_input") else "https://fdown.net/?url={url}",
+                "threads": self.threads_url_input.text() if hasattr(self, "threads_url_input") else "https://threadsdownloader.com/?url={url}"
+            }
         }
         
         # 保存到用戶偏好文件
@@ -4346,6 +4394,18 @@ class SettingsTab(QWidget):
             self.timeout_spin.setValue(60)
         if hasattr(self, "disable_ssl_cb"):
             self.disable_ssl_cb.setChecked(True)
+            
+        # 外部下載替代網址設定
+        if hasattr(self, "ig_url_input"):
+            self.ig_url_input.setText("https://igram.io/?url={url}")
+        if hasattr(self, "twitter_url_input"):
+            self.twitter_url_input.setText("https://twittervideodownloader.com/?url={url}")
+        if hasattr(self, "tiktok_url_input"):
+            self.tiktok_url_input.setText("https://tiktokio.com/zh_tw/?url={url}")
+        if hasattr(self, "facebook_url_input"):
+            self.facebook_url_input.setText("https://fdown.net/?url={url}")
+        if hasattr(self, "threads_url_input"):
+            self.threads_url_input.setText("https://threadsdownloader.com/?url={url}")
     
     def load_settings_from_file(self):
         """從文件載入設定"""
@@ -4965,6 +5025,157 @@ class SettingsTab(QWidget):
         
         return platform_widget
 
+    def create_external_urls_settings(self):
+        """創建外部下載替代網址設定頁面"""
+        external_urls_widget = QWidget()
+        layout = QVBoxLayout(external_urls_widget)
+        
+        # 說明文字
+        description_label = QLabel(
+            "當下載失敗時，系統會顯示紅色的外部下載按鈕，點擊後會開啟瀏覽器前往下方設定的網站。\n"
+            "您可以自訂每個平台的外部下載網址，其中 {url} 將被替換為實際的影片網址。\n"
+            "如果留空，則使用預設值。"
+        )
+        description_label.setWordWrap(True)
+        description_label.setStyleSheet("margin-bottom: 15px;")
+        layout.addWidget(description_label)
+        
+        # 創建表單佈局
+        form_layout = QGridLayout()
+        form_layout.setColumnStretch(1, 1)  # 讓輸入框列可以伸展
+        
+        # 添加各平台的設定
+        # Instagram
+        form_layout.addWidget(QLabel("Instagram:"), 0, 0)
+        self.ig_url_input = QLineEdit()
+        self.ig_url_input.setPlaceholderText("https://igram.io/?url={url}")
+        form_layout.addWidget(self.ig_url_input, 0, 1)
+        
+        # Twitter/X
+        form_layout.addWidget(QLabel("Twitter/X:"), 1, 0)
+        self.twitter_url_input = QLineEdit()
+        self.twitter_url_input.setPlaceholderText("https://twittervideodownloader.com/?url={url}")
+        form_layout.addWidget(self.twitter_url_input, 1, 1)
+        
+        # TikTok
+        form_layout.addWidget(QLabel("TikTok:"), 2, 0)
+        self.tiktok_url_input = QLineEdit()
+        self.tiktok_url_input.setPlaceholderText("https://tiktokio.com/zh_tw/?url={url}")
+        form_layout.addWidget(self.tiktok_url_input, 2, 1)
+        
+        # Facebook
+        form_layout.addWidget(QLabel("Facebook:"), 3, 0)
+        self.facebook_url_input = QLineEdit()
+        self.facebook_url_input.setPlaceholderText("https://fdown.net/?url={url}")
+        form_layout.addWidget(self.facebook_url_input, 3, 1)
+        
+        # Threads
+        form_layout.addWidget(QLabel("Threads:"), 4, 0)
+        self.threads_url_input = QLineEdit()
+        self.threads_url_input.setPlaceholderText("https://threadsdownloader.com/?url={url}")
+        form_layout.addWidget(self.threads_url_input, 4, 1)
+        
+        # 添加表單到主佈局
+        form_group = QGroupBox("外部下載替代網址")
+        form_group.setLayout(form_layout)
+        layout.addWidget(form_group)
+        
+        # 按鈕區域
+        buttons_layout = QHBoxLayout()
+        
+        # 還原預設按鈕
+        reset_urls_btn = QPushButton("還原預設網址")
+        reset_urls_btn.clicked.connect(self.reset_external_urls)
+        buttons_layout.addWidget(reset_urls_btn)
+        
+        buttons_layout.addStretch(1)
+        
+        # 套用按鈕
+        apply_urls_btn = QPushButton("立即套用")
+        apply_urls_btn.clicked.connect(self.apply_external_urls)
+        buttons_layout.addWidget(apply_urls_btn)
+        
+        layout.addLayout(buttons_layout)
+        
+        # 添加伸展空間
+        layout.addStretch(1)
+        
+        # 載入現有設定
+        self.load_external_urls_settings()
+        
+        return external_urls_widget
+        
+    def load_external_urls_settings(self):
+        """載入外部下載替代網址設定"""
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    
+                    # 載入外部下載替代網址設定
+                    if "external_urls" in settings:
+                        external_urls = settings["external_urls"]
+                        if "instagram" in external_urls:
+                            self.ig_url_input.setText(external_urls["instagram"])
+                        if "twitter" in external_urls:
+                            self.twitter_url_input.setText(external_urls["twitter"])
+                        if "tiktok" in external_urls:
+                            self.tiktok_url_input.setText(external_urls["tiktok"])
+                        if "facebook" in external_urls:
+                            self.facebook_url_input.setText(external_urls["facebook"])
+                        if "threads" in external_urls:
+                            self.threads_url_input.setText(external_urls["threads"])
+        except Exception as e:
+            log(f"載入外部下載替代網址設定失敗: {str(e)}")
+            
+    def reset_external_urls(self):
+        """還原預設外部下載替代網址"""
+        self.ig_url_input.setText("https://igram.io/?url={url}")
+        self.twitter_url_input.setText("https://twittervideodownloader.com/?url={url}")
+        self.tiktok_url_input.setText("https://tiktokio.com/zh_tw/?url={url}")
+        self.facebook_url_input.setText("https://fdown.net/?url={url}")
+        self.threads_url_input.setText("https://threadsdownloader.com/?url={url}")
+        
+        QMessageBox.information(self, "還原完成", "已還原所有外部下載替代網址為預設值")
+        
+    def apply_external_urls(self):
+        """立即套用外部下載替代網址設定"""
+        # 收集設定
+        external_urls = {
+            "instagram": self.ig_url_input.text() or "https://igram.io/?url={url}",
+            "twitter": self.twitter_url_input.text() or "https://twittervideodownloader.com/?url={url}",
+            "tiktok": self.tiktok_url_input.text() or "https://tiktokio.com/zh_tw/?url={url}",
+            "facebook": self.facebook_url_input.text() or "https://fdown.net/?url={url}",
+            "threads": self.threads_url_input.text() or "https://threadsdownloader.com/?url={url}"
+        }
+        
+        # 保存到用戶偏好文件
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            
+            # 讀取現有設定（如果存在）
+            existing_settings = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    try:
+                        existing_settings = json.load(f)
+                    except:
+                        existing_settings = {}
+            
+            # 更新設定
+            existing_settings["external_urls"] = external_urls
+            
+            # 保存設定
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(existing_settings, f, ensure_ascii=False, indent=4)
+                
+            log("外部下載替代網址設定已保存")
+            QMessageBox.information(self, "設定已套用", "外部下載替代網址設定已成功套用並保存。")
+        except Exception as e:
+            log(f"保存外部下載替代網址設定失敗: {str(e)}")
+            QMessageBox.warning(self, "保存失敗", f"無法保存外部下載替代網址設定: {str(e)}")
+
 class QStackedWidget(QWidget):
     """自定義堆疊小部件"""
     
@@ -5078,7 +5289,8 @@ class MainWindow(QMainWindow):
         self.downloaded_files_tab.set_download_path(self.download_path)
         
         # 更新現有下載項目的前綴
-        self.download_tab.update_download_prefix(settings["file_prefix"])
+        if "default_prefix" in settings:
+            self.download_tab.update_download_prefix(settings["default_prefix"])
         
         # 切換回下載頁籤
         self.tab_widget.setCurrentIndex(0)
@@ -5152,7 +5364,7 @@ class MainWindow(QMainWindow):
             log(f"已保存視窗大小和位置設定: {window_geometry}")
         except Exception as e:
             log(f"保存視窗設定失敗: {str(e)}")
-    
+            
     def closeEvent(self, event):
         """關閉視窗時的處理"""
         log("關閉主視窗...")
@@ -5217,7 +5429,7 @@ def main():
     
     # 設定應用程式資訊
     app.setApplicationName("多平台影片下載器")
-    app.setApplicationVersion("1.65")  # 更新版本號
+    app.setApplicationVersion("1.71")  # 更新版本號
     app.setOrganizationName("Video Downloader")
     
     # 設置應用字體
@@ -5225,7 +5437,7 @@ def main():
     font.setPointSize(9)
     app.setFont(font)
     
-    log("啟動多平台影片下載器 V1.65 - 支援YouTube、TikTok、Facebook等多個平台")
+    log("啟動多平台影片下載器 V1.71 - 支援YouTube、TikTok、Facebook等多個平台")
     
     window = MainWindow()
     window.show()
@@ -5235,4 +5447,4 @@ def main():
     sys.exit(app.exec())
 
 if __name__ == "__main__":
-    main() 
+    main()

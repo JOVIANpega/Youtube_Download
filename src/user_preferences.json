@@ -1,5 +1,5 @@
 {
-    "download_path": "D:/DEL_TEST",
+    "download_path": "C:\\Users\\Jovian\\Downloads",
     "default_format": "最高品質",
     "default_resolution": "自動選擇最佳",
     "extract_audio_only": false,
@@ -24,13 +24,13 @@
     "show_progress_notifications": true,
     "minimize_to_tray": false,
     "max_retries": 3,
-    "timeout": 30,
+    "timeout": 60,
     "use_proxy": false,
     "proxy_url": "",
     "filename_template": "%(title)s.%(ext)s",
     "add_timestamp": false,
     "sanitize_filename": true,
-    "max_concurrent_downloads": 3,
+    "max_concurrent_downloads": 2,
     "prefix_history": [
         "TEST-",
         "Per Nice-",
@@ -52,5 +52,29 @@
     "truncate_filename": true,
     "max_filename_length": 200,
     "create_subfolders": false,
-    "organize_by_date": false
+    "organize_by_date": false,
+    "use_cookies": false,
+    "cookies_file": "",
+    "proxy_type": "HTTP",
+    "proxy_address": "",
+    "proxy_port": "",
+    "use_proxy_auth": false,
+    "proxy_username": "",
+    "proxy_password": "",
+    "retry_count": 3,
+    "retry_wait": 5,
+    "disable_ssl": true,
+    "window_geometry": {
+        "x": 100,
+        "y": 100,
+        "width": 927,
+        "height": 686
+    },
+    "external_urls": {
+        "instagram": "https://igram.io/?url={url}",
+        "twitter": "https://twittervideodownloader.com/?url={url}",
+        "tiktok": "https://tiktokio.com/zh_tw/?url={url}",
+        "facebook": "https://fdown.net/?url={url}",
+        "threads": "https://threadsdownloader.com/?url={url}"
+    }
 }
