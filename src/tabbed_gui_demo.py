@@ -1175,14 +1175,7 @@ class DownloadTab(QWidget):
         self.clear_completed_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #5cb85c"))
         self.clear_completed_btn.clicked.connect(self.clear_completed_downloads)
         
-        self.delete_btn = QPushButton("刪除選取")
-        self.delete_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #d9534f"))
-        self.delete_btn.clicked.connect(self.delete_selected)
-        
-        # 新增：跳過錯誤任務按鈕
-        self.skip_error_btn = QPushButton("跳過錯誤任務")
-        self.skip_error_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #5cb85c"))
-        self.skip_error_btn.clicked.connect(self.skip_error_tasks)
+        # 移除刪除選取和跳過錯誤任務按鈕
         
         # 創建總進度條
         total_label = QLabel("總進度:")
@@ -1211,8 +1204,6 @@ class DownloadTab(QWidget):
         # 添加按鈕和總進度條到控制佈局
         control_layout.addWidget(self.download_btn)
         control_layout.addWidget(self.clear_completed_btn)
-        control_layout.addWidget(self.delete_btn)
-        control_layout.addWidget(self.skip_error_btn)
         control_layout.addStretch(1)
         control_layout.addWidget(total_label)
         control_layout.addWidget(self.total_progress)
@@ -5224,6 +5215,9 @@ class MainWindow(QMainWindow):
         # 默認下載路徑設置為用戶的下載目錄
         self.download_path = os.path.join(os.path.expanduser("~"), "Downloads")
         
+        # 字體大小設定，預設為11
+        self.font_size = 11
+        
         # 載入視窗大小和位置設定
         self.load_window_settings()
         
@@ -5248,6 +5242,11 @@ class MainWindow(QMainWindow):
             if os.path.exists(settings_path):
                 with open(settings_path, "r", encoding="utf-8") as f:
                     settings = json.load(f)
+                    
+                    # 載入字體大小設定
+                    if "font_size" in settings:
+                        self.font_size = settings["font_size"]
+                        log(f"已載入字體大小設定: {self.font_size}")
                     
                     # 載入視窗大小和位置
                     if "window_geometry" in settings:
@@ -5287,6 +5286,31 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        
+        # 創建頂部工具列 - 添加字體大小調整按鈕
+        toolbar_layout = QHBoxLayout()
+        
+        # 字體大小調整按鈕
+        font_label = QLabel("文字大小:")
+        self.font_size_label = QLabel(f"{self.font_size}")
+        self.font_size_label.setAlignment(Qt.AlignCenter)
+        self.font_size_label.setMinimumWidth(30)
+        
+        font_decrease_btn = QPushButton("-")
+        font_decrease_btn.setFixedSize(30, 30)
+        font_decrease_btn.clicked.connect(self.decrease_font_size)
+        
+        font_increase_btn = QPushButton("+")
+        font_increase_btn.setFixedSize(30, 30)
+        font_increase_btn.clicked.connect(self.increase_font_size)
+        
+        toolbar_layout.addWidget(font_label)
+        toolbar_layout.addWidget(font_decrease_btn)
+        toolbar_layout.addWidget(self.font_size_label)
+        toolbar_layout.addWidget(font_increase_btn)
+        toolbar_layout.addStretch(1)
+        
+        main_layout.addLayout(toolbar_layout)
         
         # 創建頁籤部件
         self.tab_widget = QTabWidget()
@@ -5356,6 +5380,55 @@ class MainWindow(QMainWindow):
             }
         """)
     
+    def increase_font_size(self):
+        """增加字體大小"""
+        if self.font_size < 20:  # 設置上限
+            self.font_size += 1
+            self.update_font_size()
+            
+    def decrease_font_size(self):
+        """減少字體大小"""
+        if self.font_size > 8:  # 設置下限
+            self.font_size -= 1
+            self.update_font_size()
+            
+    def update_font_size(self):
+        """更新字體大小"""
+        self.font_size_label.setText(f"{self.font_size}")
+        
+        # 更新應用程式字體
+        font = QFont()
+        font.setPointSize(self.font_size)
+        QApplication.setFont(font)
+        
+        # 保存字體大小設定
+        self.save_font_size()
+        
+    def save_font_size(self):
+        """保存字體大小設定"""
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_config.json")
+            
+            # 讀取現有設定（如果存在）
+            settings = {}
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    try:
+                        settings = json.load(f)
+                    except:
+                        settings = {}
+            
+            # 更新字體大小設定
+            settings["font_size"] = self.font_size
+            
+            # 保存設定
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(settings, f, ensure_ascii=False, indent=4)
+                
+            log(f"已保存字體大小設定: {self.font_size}")
+        except Exception as e:
+            log(f"保存字體大小設定失敗: {str(e)}")
+    
     def save_window_settings(self):
         """保存視窗大小和位置設定"""
         try:
@@ -5381,6 +5454,7 @@ class MainWindow(QMainWindow):
             
             # 更新設定
             settings["window_geometry"] = window_geometry
+            settings["font_size"] = self.font_size
             
             # 保存是否最大化
             settings["window_maximized"] = self.isMaximized()
@@ -5457,15 +5531,15 @@ def main():
     
     # 設定應用程式資訊
     app.setApplicationName("多平台影片下載器")
-    app.setApplicationVersion("1.71")  # 更新版本號
+    app.setApplicationVersion("1.72")  # 更新版本號
     app.setOrganizationName("Video Downloader")
     
     # 設置應用字體
     font = QFont()
-    font.setPointSize(9)
+    font.setPointSize(11)  # 預設字體大小為11
     app.setFont(font)
     
-    log("啟動多平台影片下載器 V1.71 - 支援YouTube、TikTok、Facebook等多個平台")
+    log("啟動多平台影片下載器 V1.72 - 支援YouTube、TikTok、Facebook等多個平台")
     
     window = MainWindow()
     window.show()
