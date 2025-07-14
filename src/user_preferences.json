@@ -30,7 +30,7 @@
     "filename_template": "%(title)s.%(ext)s",
     "add_timestamp": false,
     "sanitize_filename": true,
-    "max_concurrent_downloads": 2,
+    "max_concurrent_downloads": 3,
     "prefix_history": [
         "TEST-",
         "Per Nice-",
@@ -65,12 +65,13 @@
     "retry_wait": 5,
     "disable_ssl": true,
     "window_geometry": {
-        "x": 100,
+        "x": 230,
         "y": 100,
         "width": 927,
-        "height": 686
+        "height": 594
     },
     "external_urls": {
+        "youtube": "https://publer.com/tools/youtube-shorts-downloader?url={url}",
         "instagram": "https://igram.io/?url={url}",
         "twitter": "https://twittervideodownloader.com/?url={url}",
         "tiktok": "https://tiktokio.com/zh_tw/?url={url}",

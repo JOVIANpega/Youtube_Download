@@ -1,0 +1,28 @@
+{
+    "max_concurrent_downloads": 3,
+    "prefix_history": [
+        "Per Nice-",
+        "Per Best3-",
+        "Per Best2-",
+        "Per Best-",
+        "Per-",
+        "TEST-",
+        "test-",
+        "test",
+        "tes",
+        "te",
+        "t"
+    ],
+    "download_path": "C:\\Users\\Jovian\\Downloads",
+    "current_format": "最高品質",
+    "current_resolution": "自動選擇最佳",
+    "current_prefix": "TEST-",
+    "auto_merge": true,
+    "window_geometry": {
+        "x": 250,
+        "y": 70,
+        "width": 927,
+        "height": 570
+    },
+    "window_maximized": false
+}

@@ -818,8 +818,8 @@ class DownloadTab(QWidget):
         self.error_dialogs = {}  # 添加錯誤對話框字典，用於跟踪當前顯示的錯誤對話框
         self.format_dialogs = {}  # 添加格式選項對話框字典，用於跟踪當前顯示的格式選項對話框
         self.supported_platforms = get_supported_platforms()  # 獲取支援的平台列表
-        self.load_settings()  # 載入設定
-        self.init_ui()
+        self.init_ui()  # 先初始化UI
+        self.load_settings()  # 再載入設定
         # 初始化完成
         self._is_initializing = False
     
@@ -839,7 +839,7 @@ class DownloadTab(QWidget):
     def load_settings(self):
         """載入設定"""
         try:
-            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_config.json")
             if os.path.exists(settings_path):
                 with open(settings_path, "r", encoding="utf-8") as f:
                     settings = json.load(f)
@@ -858,14 +858,38 @@ class DownloadTab(QWidget):
                     if "download_path" in settings and os.path.exists(settings["download_path"]):
                         self.download_path = settings["download_path"]
                         
+                    # 載入當前選擇的格式
+                    if "current_format" in settings:
+                        format_index = self.format_combo.findText(settings["current_format"])
+                        if format_index >= 0:
+                            self.format_combo.setCurrentIndex(format_index)
+                    
+                    # 載入當前選擇的解析度
+                    if "current_resolution" in settings:
+                        resolution_index = self.resolution_combo.findText(settings["current_resolution"])
+                        if resolution_index >= 0:
+                            self.resolution_combo.setCurrentIndex(resolution_index)
+                    
+                    # 載入當前前綴
+                    if "current_prefix" in settings and settings["current_prefix"]:
+                        self.prefix_combo.setCurrentText(settings["current_prefix"])
+                    
+                    # 載入自動合併設定
+                    if "auto_merge" in settings:
+                        self.auto_merge_cb.setChecked(settings["auto_merge"])
+                        
                     log("已載入用戶設定")
+            else:
+                # 如果設定檔不存在，創建一個預設設定檔
+                self.save_settings()
+                log("創建預設用戶設定檔")
         except Exception as e:
             log(f"載入設定失敗: {str(e)}")
     
     def save_settings(self):
         """保存設定"""
         try:
-            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_config.json")
             
             # 讀取現有設定（如果存在）
             settings = {}
@@ -880,6 +904,18 @@ class DownloadTab(QWidget):
             settings["max_concurrent_downloads"] = self.max_concurrent_downloads
             settings["prefix_history"] = self.prefix_history
             settings["download_path"] = self.download_path
+            
+            # 保存當前選擇的格式
+            settings["current_format"] = self.format_combo.currentText()
+            
+            # 保存當前選擇的解析度
+            settings["current_resolution"] = self.resolution_combo.currentText()
+            
+            # 保存當前前綴
+            settings["current_prefix"] = self.prefix_combo.currentText()
+            
+            # 保存自動合併設定
+            settings["auto_merge"] = self.auto_merge_cb.isChecked()
             
             # 保存設定
             with open(settings_path, "w", encoding="utf-8") as f:
@@ -1135,13 +1171,9 @@ class DownloadTab(QWidget):
         self.download_btn.setStyleSheet(button_style)
         self.download_btn.clicked.connect(self.start_download)
         
-        self.pause_all_btn = QPushButton("暫停所有")
-        self.pause_all_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #f0ad4e"))
-        self.pause_all_btn.clicked.connect(self.pause_all)
-        
-        self.resume_all_btn = QPushButton("繼續所有")
-        self.resume_all_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #5cb85c"))
-        self.resume_all_btn.clicked.connect(self.resume_all)
+        self.clear_completed_btn = QPushButton("清空已下載成功的檔案")
+        self.clear_completed_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #5cb85c"))
+        self.clear_completed_btn.clicked.connect(self.clear_completed_downloads)
         
         self.delete_btn = QPushButton("刪除選取")
         self.delete_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #d9534f"))
@@ -1152,12 +1184,38 @@ class DownloadTab(QWidget):
         self.skip_error_btn.setStyleSheet(button_style.replace("background-color: #0078d7", "background-color: #5cb85c"))
         self.skip_error_btn.clicked.connect(self.skip_error_tasks)
         
+        # 創建總進度條
+        total_label = QLabel("總進度:")
+        self.total_progress = QProgressBar()
+        self.total_progress.setMinimum(0)
+        self.total_progress.setMaximum(100)
+        self.total_progress.setValue(0)
+        self.total_progress.setTextVisible(True)
+        self.total_progress.setFormat("總進度: 0% (0/0)")
+        self.total_progress.setMinimumWidth(300)  # 設置最小寬度，使進度條更明顯
+        self.total_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #cccccc;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #f5f5f5;
+                color: black;
+                font-weight: bold;
+            }
+            QProgressBar::chunk {
+                background-color: #0078d7;
+                border-radius: 5px;
+            }
+        """)
+        
+        # 添加按鈕和總進度條到控制佈局
         control_layout.addWidget(self.download_btn)
-        control_layout.addWidget(self.pause_all_btn)
-        control_layout.addWidget(self.resume_all_btn)
+        control_layout.addWidget(self.clear_completed_btn)
         control_layout.addWidget(self.delete_btn)
         control_layout.addWidget(self.skip_error_btn)
         control_layout.addStretch(1)
+        control_layout.addWidget(total_label)
+        control_layout.addWidget(self.total_progress)
         
         main_layout.addLayout(control_layout)
         
@@ -1174,38 +1232,6 @@ class DownloadTab(QWidget):
         scroll_area.setWidget(scroll_content)
         
         progress_layout.addWidget(scroll_area)
-        
-        # 總進度部分移至右下角
-        total_progress_layout = QHBoxLayout()
-        total_progress_layout.addStretch(1)
-        
-        total_progress_container = QWidget()
-        total_progress_box = QHBoxLayout(total_progress_container)
-        total_progress_box.setContentsMargins(0, 0, 0, 0)
-        
-        total_label = QLabel("總進度:")
-        self.total_progress = QProgressBar()
-        self.total_progress.setMinimum(0)
-        self.total_progress.setMaximum(100)
-        self.total_progress.setValue(0)
-        self.total_progress.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #cccccc;
-                border-radius: 5px;
-                text-align: center;
-                background-color: #f5f5f5;
-            }
-            QProgressBar::chunk {
-                background-color: #0078d7;
-                border-radius: 5px;
-            }
-        """)
-        
-        total_progress_box.addWidget(total_label)
-        total_progress_box.addWidget(self.total_progress)
-        
-        total_progress_layout.addWidget(total_progress_container)
-        progress_layout.addLayout(total_progress_layout)
         
         main_layout.addWidget(progress_group)
         
@@ -2361,23 +2387,48 @@ class DownloadTab(QWidget):
 
     def update_total_progress(self):
         """更新總進度信息"""
-        # 計算完成的下載數量
-        total_items = len(self.download_items) + 1  # +1 因為已完成的不在列表中
+        # 計算總下載項目數和已完成的下載數量
+        total_items = len(self.download_items)
+        if total_items == 0:
+            # 如果沒有下載項目，重置進度條
+            self.total_progress.setValue(0)
+            return
+            
         completed_items = 0
+        in_progress_items = 0
+        total_percent = 0
         
-        # 查找所有進度條
-        progress_bars = self.findChildren(QProgressBar)
-        for progress_bar in progress_bars:
-            if progress_bar.value() == 100:
-                completed_items += 1
+        # 統計所有下載項目的進度
+        for filename, item_data in self.download_items.items():
+            progress_bar = item_data.get('progress_bar')
+            if progress_bar:
+                progress_value = progress_bar.value()
+                if progress_value == 100:
+                    completed_items += 1
+                else:
+                    in_progress_items += 1
+                    total_percent += progress_value
         
-        # 更新總進度標籤
-        total_label = self.findChild(QLabel, "total_progress_label")
-        if total_label:
-            if total_items == completed_items:
-                total_label.setText(f"總進度：{completed_items}/{total_items} 完成")
+        # 計算總體進度百分比
+        if total_items > 0:
+            if in_progress_items > 0:
+                # 計算進行中項目的平均進度
+                avg_progress = total_percent / in_progress_items
+                # 總進度 = (已完成項目數 / 總項目數) * 100 + (進行中項目數 / 總項目數) * 平均進度
+                total_progress_percent = int((completed_items / total_items) * 100 + (in_progress_items / total_items) * avg_progress)
             else:
-                total_label.setText(f"總進度：{completed_items}/{total_items} 完成 | 總剩餘時間：約 {(total_items-completed_items) * 2} 分鐘")
+                # 如果沒有進行中的項目，總進度就是已完成項目的比例
+                total_progress_percent = int((completed_items / total_items) * 100)
+            
+            # 更新總進度條
+            self.total_progress.setValue(total_progress_percent)
+            
+            # 更新總進度標籤
+            if completed_items == total_items:
+                self.total_progress.setFormat(f"總進度: 100% ({completed_items}/{total_items})")
+            else:
+                remaining_time = (total_items - completed_items) * 2  # 假設每個項目平均需要2分鐘
+                self.total_progress.setFormat(f"總進度: {total_progress_percent}% ({completed_items}/{total_items})")
 
     def browse_path(self):
         """瀏覽下載路徑"""
@@ -2404,96 +2455,45 @@ class DownloadTab(QWidget):
         """更新解析度可用性（模擬根據影片實際可用解析度）"""
         current_resolution = self.resolution_combo.currentText()
         log(f"已選擇解析度: {current_resolution}")
+        
+    def clear_completed_downloads(self):
+        """清空已下載成功的檔案"""
+        log("清空已下載成功的檔案")
+        
+        # 找出所有已完成的下載項目
+        completed_items = []
+        for filename, item_data in list(self.download_items.items()):
+            progress_bar = item_data.get('progress_bar')
+            status_label = item_data.get('status_label')
+            
+            # 檢查是否已完成下載
+            if (progress_bar and progress_bar.value() == 100) or (status_label and ("已完成" in status_label.text() or "✅" in status_label.text())):
+                completed_items.append(filename)
+        
+        # 如果沒有已完成的項目，顯示提示訊息
+        if not completed_items:
+            QMessageBox.information(self, "清空完成", "沒有已下載完成的檔案可清空")
+            return
+        
+        # 刪除已完成的項目
+        for filename in completed_items:
+            self.remove_item_from_ui(filename)
+            
+            # 如果有相關的下載線程，也一併清理
+            if filename in self.download_threads:
+                thread = self.download_threads[filename]
+                if thread.isRunning():
+                    thread.cancel()
+                    thread.wait()
+                del self.download_threads[filename]
+        
+        # 更新總進度
+        self.update_total_progress()
+        
+        # 顯示清空完成提示
+        QMessageBox.information(self, "清空完成", f"已清空 {len(completed_items)} 個已下載完成的檔案")
 
-    def pause_all(self):
-        """暫停所有下載任務"""
-        log("暫停所有下載任務")
-        
-        # 暫停所有正在運行的下載線程
-        for filename, thread in list(self.download_threads.items()):
-            if thread.isRunning() and not thread.is_paused:
-                # 實際暫停線程
-                if hasattr(thread, 'pause'):
-                    thread.pause()
-                    log(f"已暫停下載: {filename}")
-                
-                # 更新UI
-                if filename in self.download_items:
-                    item_data = self.download_items[filename]
-                    
-                    # 更新按鈕文字
-                    item_data['pause_btn'].setText("繼續")
-                    
-                    # 更新狀態標籤
-                    item_data['status_label'].setText("已暫停")
-                    
-                    # 更新圖標
-                    item_data['icon_label'].setText("⏸")
-                    item_data['icon_label'].setStyleSheet("color: #f0ad4e; font-size: 14pt;")
-                    
-                    # 更新進度條樣式
-                    item_data['progress_bar'].setStyleSheet("""
-                        QProgressBar {
-                            border: 1px solid #cccccc;
-                            border-radius: 5px;
-                            text-align: center;
-                            background-color: #f5f5f5;
-                            color: black;
-                            font-weight: bold;
-                        }
-                        QProgressBar::chunk {
-                            background-color: #f0ad4e;
-                            border-radius: 5px;
-                        }
-                    """)
-        
-        # 顯示暫停完成提示
-        QMessageBox.information(self, "已暫停", "已暫停所有下載任務")
-        
-    def resume_all(self):
-        """繼續所有下載任務"""
-        log("繼續所有下載任務")
-        
-        # 恢復所有暫停的下載線程
-        for filename, thread in list(self.download_threads.items()):
-            if thread.isRunning() and thread.is_paused:
-                # 實際恢復線程
-                if hasattr(thread, 'resume'):
-                    thread.resume()
-                    log(f"已恢復下載: {filename}")
-                
-                # 更新UI
-                if filename in self.download_items:
-                    item_data = self.download_items[filename]
-                    
-                    # 更新按鈕文字
-                    item_data['pause_btn'].setText("暫停")
-                    
-                    # 更新狀態標籤
-                    item_data['status_label'].setText("進行中")
-                    
-                    # 更新圖標
-                    item_data['icon_label'].setText("▶")
-                    item_data['icon_label'].setStyleSheet("color: #ff0000; font-size: 14pt; font-weight: bold;")
-                    
-                    # 更新進度條樣式
-                    item_data['progress_bar'].setStyleSheet("""
-                        QProgressBar {
-                            border: 1px solid #cccccc;
-                            border-radius: 5px;
-                            text-align: center;
-                            background-color: #f5f5f5;
-                            color: black;
-                            font-weight: bold;
-                        }
-                        QProgressBar::chunk {
-                            background-color: #0078d7;
-                            border-radius: 5px;
-                        }
-                    """)
-        
-        # 顯示恢復完成提示
-        QMessageBox.information(self, "已恢復", "已恢復所有下載任務")
+
 
     def delete_selected(self):
         """刪除選中的下載項目"""
@@ -3562,7 +3562,9 @@ class DownloadTab(QWidget):
         external_urls = self.load_external_url_settings()
         
         # 根據URL判斷平台並打開對應的下載網站
-        if 'tiktok.com' in url.lower() or 'douyin.com' in url.lower():
+        if 'youtube.com' in url.lower() or 'youtu.be' in url.lower():
+            external_url = external_urls.get("youtube", "https://publer.com/tools/youtube-shorts-downloader?url={url}").format(url=url)
+        elif 'tiktok.com' in url.lower() or 'douyin.com' in url.lower():
             external_url = external_urls.get("tiktok", "https://tiktokio.com/zh_tw/?url={url}").format(url=url)
         elif 'facebook.com' in url.lower() or 'fb.com' in url.lower() or 'fb.watch' in url.lower():
             external_url = external_urls.get("facebook", "https://fdown.net/?url={url}").format(url=url)
@@ -3587,6 +3589,7 @@ class DownloadTab(QWidget):
     def load_external_url_settings(self):
         """載入外部下載替代網址設定"""
         default_urls = {
+            "youtube": "https://publer.com/tools/youtube-shorts-downloader?url={url}",
             "instagram": "https://igram.io/?url={url}",
             "twitter": "https://twittervideodownloader.com/?url={url}",
             "tiktok": "https://tiktokio.com/zh_tw/?url={url}",
@@ -4277,6 +4280,7 @@ class SettingsTab(QWidget):
             
             # 外部下載替代網址設定
             "external_urls": {
+                "youtube": self.youtube_url_input.text() if hasattr(self, "youtube_url_input") else "https://publer.com/tools/youtube-shorts-downloader?url={url}",
                 "instagram": self.ig_url_input.text() if hasattr(self, "ig_url_input") else "https://igram.io/?url={url}",
                 "twitter": self.twitter_url_input.text() if hasattr(self, "twitter_url_input") else "https://twittervideodownloader.com/?url={url}",
                 "tiktok": self.tiktok_url_input.text() if hasattr(self, "tiktok_url_input") else "https://tiktokio.com/zh_tw/?url={url}",
@@ -4410,7 +4414,7 @@ class SettingsTab(QWidget):
     def load_settings_from_file(self):
         """從文件載入設定"""
         try:
-            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_config.json")
             if os.path.exists(settings_path):
                 with open(settings_path, "r", encoding="utf-8") as f:
                     settings = json.load(f)
@@ -5045,35 +5049,41 @@ class SettingsTab(QWidget):
         form_layout.setColumnStretch(1, 1)  # 讓輸入框列可以伸展
         
         # 添加各平台的設定
+        # YouTube
+        form_layout.addWidget(QLabel("YouTube:"), 0, 0)
+        self.youtube_url_input = QLineEdit()
+        self.youtube_url_input.setPlaceholderText("https://publer.com/tools/youtube-shorts-downloader?url={url}")
+        form_layout.addWidget(self.youtube_url_input, 0, 1)
+        
         # Instagram
-        form_layout.addWidget(QLabel("Instagram:"), 0, 0)
+        form_layout.addWidget(QLabel("Instagram:"), 1, 0)
         self.ig_url_input = QLineEdit()
         self.ig_url_input.setPlaceholderText("https://igram.io/?url={url}")
-        form_layout.addWidget(self.ig_url_input, 0, 1)
+        form_layout.addWidget(self.ig_url_input, 1, 1)
         
         # Twitter/X
-        form_layout.addWidget(QLabel("Twitter/X:"), 1, 0)
+        form_layout.addWidget(QLabel("Twitter/X:"), 2, 0)
         self.twitter_url_input = QLineEdit()
         self.twitter_url_input.setPlaceholderText("https://twittervideodownloader.com/?url={url}")
-        form_layout.addWidget(self.twitter_url_input, 1, 1)
+        form_layout.addWidget(self.twitter_url_input, 2, 1)
         
         # TikTok
-        form_layout.addWidget(QLabel("TikTok:"), 2, 0)
+        form_layout.addWidget(QLabel("TikTok:"), 3, 0)
         self.tiktok_url_input = QLineEdit()
         self.tiktok_url_input.setPlaceholderText("https://tiktokio.com/zh_tw/?url={url}")
-        form_layout.addWidget(self.tiktok_url_input, 2, 1)
+        form_layout.addWidget(self.tiktok_url_input, 3, 1)
         
         # Facebook
-        form_layout.addWidget(QLabel("Facebook:"), 3, 0)
+        form_layout.addWidget(QLabel("Facebook:"), 4, 0)
         self.facebook_url_input = QLineEdit()
         self.facebook_url_input.setPlaceholderText("https://fdown.net/?url={url}")
-        form_layout.addWidget(self.facebook_url_input, 3, 1)
+        form_layout.addWidget(self.facebook_url_input, 4, 1)
         
         # Threads
-        form_layout.addWidget(QLabel("Threads:"), 4, 0)
+        form_layout.addWidget(QLabel("Threads:"), 5, 0)
         self.threads_url_input = QLineEdit()
         self.threads_url_input.setPlaceholderText("https://threadsdownloader.com/?url={url}")
-        form_layout.addWidget(self.threads_url_input, 4, 1)
+        form_layout.addWidget(self.threads_url_input, 5, 1)
         
         # 添加表單到主佈局
         form_group = QGroupBox("外部下載替代網址")
@@ -5116,6 +5126,8 @@ class SettingsTab(QWidget):
                     # 載入外部下載替代網址設定
                     if "external_urls" in settings:
                         external_urls = settings["external_urls"]
+                        if "youtube" in external_urls:
+                            self.youtube_url_input.setText(external_urls["youtube"])
                         if "instagram" in external_urls:
                             self.ig_url_input.setText(external_urls["instagram"])
                         if "twitter" in external_urls:
@@ -5131,6 +5143,7 @@ class SettingsTab(QWidget):
             
     def reset_external_urls(self):
         """還原預設外部下載替代網址"""
+        self.youtube_url_input.setText("https://publer.com/tools/youtube-shorts-downloader?url={url}")
         self.ig_url_input.setText("https://igram.io/?url={url}")
         self.twitter_url_input.setText("https://twittervideodownloader.com/?url={url}")
         self.tiktok_url_input.setText("https://tiktokio.com/zh_tw/?url={url}")
@@ -5143,6 +5156,7 @@ class SettingsTab(QWidget):
         """立即套用外部下載替代網址設定"""
         # 收集設定
         external_urls = {
+            "youtube": self.youtube_url_input.text() or "https://publer.com/tools/youtube-shorts-downloader?url={url}",
             "instagram": self.ig_url_input.text() or "https://igram.io/?url={url}",
             "twitter": self.twitter_url_input.text() or "https://twittervideodownloader.com/?url={url}",
             "tiktok": self.tiktok_url_input.text() or "https://tiktokio.com/zh_tw/?url={url}",
@@ -5230,7 +5244,7 @@ class MainWindow(QMainWindow):
     def load_window_settings(self):
         """載入視窗大小和位置設定"""
         try:
-            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_config.json")
             if os.path.exists(settings_path):
                 with open(settings_path, "r", encoding="utf-8") as f:
                     settings = json.load(f)
@@ -5239,22 +5253,33 @@ class MainWindow(QMainWindow):
                     if "window_geometry" in settings:
                         geometry = settings["window_geometry"]
                         if "x" in geometry and "y" in geometry and "width" in geometry and "height" in geometry:
-                            self.setGeometry(
-                                geometry["x"], 
-                                geometry["y"], 
-                                geometry["width"], 
-                                geometry["height"]
-                            )
-                            log(f"已載入視窗大小和位置設定: {geometry}")
-                            return
+                            # 檢查視窗是否在螢幕範圍內
+                            screen_geo = QApplication.primaryScreen().geometry()
+                            if (geometry["x"] < screen_geo.width() and 
+                                geometry["y"] < screen_geo.height() and
+                                geometry["x"] + geometry["width"] > 0 and
+                                geometry["y"] + geometry["height"] > 0):
+                                self.setGeometry(
+                                    geometry["x"], 
+                                    geometry["y"], 
+                                    geometry["width"], 
+                                    geometry["height"]
+                                )
+                                log(f"已載入視窗大小和位置設定: {geometry}")
+                                
+                                # 檢查是否需要最大化
+                                if settings.get("window_maximized", False):
+                                    self.showMaximized()
+                                    log("已將視窗設為最大化")
+                                return
             
             # 如果沒有設定或設定不完整，使用預設值
-            self.setGeometry(100, 100, 1000, 700)
+            self.setGeometry(100, 100, 1200, 800)
             self.setMinimumSize(800, 600)
             
         except Exception as e:
             log(f"載入視窗設定失敗: {str(e)}")
-            self.setGeometry(100, 100, 1000, 700)
+            self.setGeometry(100, 100, 1200, 800)
             self.setMinimumSize(800, 600)
         
     def init_ui(self):
@@ -5334,7 +5359,7 @@ class MainWindow(QMainWindow):
     def save_window_settings(self):
         """保存視窗大小和位置設定"""
         try:
-            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_preferences.json")
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_config.json")
             
             # 讀取現有設定（如果存在）
             settings = {}
@@ -5356,6 +5381,9 @@ class MainWindow(QMainWindow):
             
             # 更新設定
             settings["window_geometry"] = window_geometry
+            
+            # 保存是否最大化
+            settings["window_maximized"] = self.isMaximized()
             
             # 保存設定
             with open(settings_path, "w", encoding="utf-8") as f:

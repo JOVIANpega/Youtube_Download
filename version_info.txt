@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 7, 0, 0),
-    prodvers=(1, 7, 0, 0),
+    filevers=(1, 7, 2, 0),
+    prodvers=(1, 7, 2, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -14,35 +14,26 @@ VSVersionInfo(
       StringTable(
         u'040904B0',
         [StringStruct(u'CompanyName', u'Multi-Platform Video Downloader'),
-         StringStruct(u'FileDescription', u'多平台影片下載器 V1.70 - 支援YouTube、TikTok、Facebook、Instagram、Bilibili、X/Twitter，特殊錯誤處理與外部下載工具整合'),
-         StringStruct(u'FileVersion', u'1.7.0'),
+         StringStruct(u'FileDescription', u'多平台影片下載器 V1.72 - 支援YouTube、TikTok、Facebook、Instagram、Bilibili、X/Twitter，記憶使用者設定與視窗狀態'),
+         StringStruct(u'FileVersion', u'1.7.2'),
          StringStruct(u'InternalName', u'multi_platform_downloader'),
          StringStruct(u'LegalCopyright', u'Copyright (c) 2024-2025'),
          StringStruct(u'OriginalFilename', u'多平台影片下載器.exe'),
          StringStruct(u'ProductName', u'多平台影片下載器'),
-         StringStruct(u'ProductVersion', u'1.7.0')])
+         StringStruct(u'ProductVersion', u'1.7.2')])
     ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
 )
 
-# Version: 1.70
-# Release Date: 2025-07-07
+# Version: 1.72
+# Release Date: 2025-07-10
 # Author: Jovian
 # Main Features: Multi-platform video downloader supporting YouTube, TikTok, Facebook, Instagram, Bilibili, X/Twitter with enhanced error handling
 # Updates: 
-# - Enhanced yt-dlp failure detection and handling
-# - New external downloader integration with platform-specific tools
-# - Red buttons for external download tools when yt-dlp fails
-# - Platform-specific external download websites:
-#   - TikTok: https://tiktokio.com/
-#   - Facebook: https://fdown.net/
-#   - Threads: https://threadsdownloader.com/
-#   - Twitter/X: https://twittervideodownloader.com/
-#   - Instagram: https://instadownloader.co/
-#   - Bilibili: https://bilibili.iiilab.com/
-# - Improved error handling with user-friendly messages
-# - Enhanced platform detection with platform-specific icons and colors
-# - Special handling for X.com/Twitter with mobile User-Agent
-# - Automatic removal of completed download items
-# - Enhanced SSL certificate handling
+# - 記錄下載頁面中所有文字欄位的設定值，並在下次啟動時自動載入
+# - 儲存預設下載資料夾、支援平台、下載格式、解析度選項、檔名前綴等設定
+# - 記錄 GUI 視窗大小與位置，當下次開啟時還原成關閉前的大小與位置
+# - 優化總進度條位置與樣式，將其移動到與「跳過錯誤任務」按鈕同一行
+# - 使用 user_config.json 儲存使用者設定
+# - 修正初始化順序問題，確保先初始化 UI 再載入設定
