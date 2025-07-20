@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 7, 2, 0),
-    prodvers=(1, 7, 2, 0),
+    filevers=(1, 7, 4, 0),
+    prodvers=(1, 7, 4, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -14,26 +14,26 @@ VSVersionInfo(
       StringTable(
         u'040904B0',
         [StringStruct(u'CompanyName', u'Multi-Platform Video Downloader'),
-         StringStruct(u'FileDescription', u'多平台影片下載器 V1.72 - 支援YouTube、TikTok、Facebook、Instagram、Bilibili、X/Twitter，記憶使用者設定與視窗狀態'),
-         StringStruct(u'FileVersion', u'1.7.2'),
+         StringStruct(u'FileDescription', u'多平台影片下載器 V1.74 - 支援YouTube、TikTok、Facebook、Instagram、Bilibili、X/Twitter，改進下載進度顯示與狀態更新'),
+         StringStruct(u'FileVersion', u'1.7.4'),
          StringStruct(u'InternalName', u'multi_platform_downloader'),
          StringStruct(u'LegalCopyright', u'Copyright (c) 2024-2025'),
          StringStruct(u'OriginalFilename', u'多平台影片下載器.exe'),
          StringStruct(u'ProductName', u'多平台影片下載器'),
-         StringStruct(u'ProductVersion', u'1.7.2')])
+         StringStruct(u'ProductVersion', u'1.7.4')])
     ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
 )
 
-# Version: 1.72
-# Release Date: 2025-07-10
+# Version: 1.74
+# Release Date: 2025-08-20
 # Author: Jovian
-# Main Features: Multi-platform video downloader supporting YouTube, TikTok, Facebook, Instagram, Bilibili, X/Twitter with enhanced error handling
+# Main Features: Multi-platform video downloader supporting YouTube, TikTok, Facebook, Instagram, Bilibili, X/Twitter with enhanced download progress display
 # Updates: 
-# - 記錄下載頁面中所有文字欄位的設定值，並在下次啟動時自動載入
-# - 儲存預設下載資料夾、支援平台、下載格式、解析度選項、檔名前綴等設定
-# - 記錄 GUI 視窗大小與位置，當下次開啟時還原成關閉前的大小與位置
-# - 優化總進度條位置與樣式，將其移動到與「跳過錯誤任務」按鈕同一行
-# - 使用 user_config.json 儲存使用者設定
-# - 修正初始化順序問題，確保先初始化 UI 再載入設定
+# - 改進下載進度顯示和任務管理，確保進度條在正確的標籤頁中顯示
+# - 優化下載完成後的狀態顯示，包含檔案大小和下載完成時間
+# - 避免清除已完成下載項目後重複顯示連結和重複下載
+# - 提高下載速度，減少UI更新頻率以降低系統負擔
+# - 改進下載完成通知功能，增加檔案開啟和資料夾開啟按鈕
+# - 修復標籤頁索引記憶功能，確保重新開啟程式時恢復先前的標籤頁

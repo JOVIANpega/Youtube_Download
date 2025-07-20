@@ -9,7 +9,7 @@ import re
 import yt_dlp
 from PySide6.QtCore import QThread, Signal, QTimer, QMutex, QWaitCondition
 
-from utils import log, apply_ssl_fix, format_size, format_time, sanitize_filename, identify_platform
+from src.utils import log, apply_ssl_fix, format_size, format_time, sanitize_filename, identify_platform
 
 class DownloadThread(QThread):
     """下載線程類"""
@@ -572,7 +572,7 @@ class DownloadThread(QThread):
             return False
     
     def progress_hook(self, d):
-        """下載進度回調函數"""
+        """下載進度回調函數 - 優化版"""
         try:
             # 更新最後進度時間
             self.last_progress_time = time.time()
@@ -588,40 +588,45 @@ class DownloadThread(QThread):
                     
                     if total > 0:
                         percent = int(downloaded / total * 100)
+                        # 避免太頻繁更新，只在進度變化時發送信號
+                        if abs(percent - self.last_progress) >= 1 or time.time() - self.last_progress_time > 1.0:
+                            # 獲取下載速度
+                            speed = d.get('speed', 0)
+                            if speed:
+                                speed_str = format_size(speed) + "/s"
+                                
+                                # 記錄下載速度歷史
+                                self.download_speed_history.append(speed)
+                                if len(self.download_speed_history) > 5:  # 減少歷史記錄數量
+                                    self.download_speed_history.pop(0)
+                            else:
+                                speed_str = "--"
+                            
+                            # 獲取剩餘時間
+                            eta = d.get('eta', None)
+                            if eta is not None:
+                                eta_str = format_time(eta)
+                            else:
+                                eta_str = "--"
+                            
+                            # 獲取檔案名稱
+                            filename = d.get('filename', '')
+                            if filename:
+                                filename = os.path.basename(filename)
+                            else:
+                                filename = "未知檔案"
+                            
+                            # 發送進度信號
+                            self.progress.emit(f"下載中: {filename}", percent, speed_str, eta_str)
+                            self.last_progress = percent
                     else:
-                        percent = 0
-                    
-                    # 獲取下載速度
-                    speed = d.get('speed', 0)
-                    if speed:
-                        speed_str = format_size(speed) + "/s"
-                        
-                        # 記錄下載速度歷史
-                        self.download_speed_history.append(speed)
-                        if len(self.download_speed_history) > 10:
-                            self.download_speed_history.pop(0)
-                    else:
-                        speed_str = "--"
-                    
-                    # 獲取剩餘時間
-                    eta = d.get('eta', None)
-                    if eta is not None:
-                        eta_str = format_time(eta)
-                    else:
-                        eta_str = "--"
-                    
-                    # 獲取檔案名稱
-                    filename = d.get('filename', '')
-                    if filename:
-                        filename = os.path.basename(filename)
-                    else:
-                        filename = "未知檔案"
-                    
-                    # 發送進度信號
-                    self.progress.emit(f"下載中: {filename}", percent, speed_str, eta_str)
-                    self.last_progress = percent
+                        # 沒有總大小信息時，每秒最多更新一次
+                        if time.time() - self.last_progress_time > 1.0:
+                            self.progress.emit("下載中...", 0, "--", "--")
                 except Exception as e:
-                    log(f"處理下載進度時發生錯誤: {str(e)}")
+                    # 只在較長時間間隔記錄錯誤，避免日誌爆炸
+                    if time.time() - self.last_progress_time > 5.0:
+                        log(f"處理下載進度時發生錯誤: {str(e)}")
                     # 發送進度信號，但不包含可能導致錯誤的值
                     self.progress.emit("下載中...", 0, "--", "--")
             
@@ -633,13 +638,18 @@ class DownloadThread(QThread):
                 else:
                     filename = "未知檔案"
                 
-                self.progress.emit(f"處理中: {filename}", 100, "--", "--")
+                # 設置一個下載完成標記，防止重複處理
+                if not hasattr(self, '_download_finished') or not self._download_finished:
+                    self._download_finished = True
+                    self.progress.emit(f"處理中: {filename}", 100, "--", "--")
                 
             elif d['status'] == 'error':
                 # 下載錯誤
                 self.progress.emit("下載錯誤", 0, "--", "--")
         except Exception as e:
-            log(f"進度回調函數發生錯誤: {str(e)}")
+            # 只在較長時間間隔記錄錯誤，避免日誌爆炸
+            if time.time() - self.last_progress_time > 5.0:
+                log(f"進度回調函數發生錯誤: {str(e)}")
     
     def cancel(self):
         """取消下載"""
