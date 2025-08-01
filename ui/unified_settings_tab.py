@@ -7,9 +7,10 @@
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
     QPushButton, QGroupBox, QCheckBox, QSpinBox, QFileDialog, QMessageBox,
-    QScrollArea, QFormLayout, QSlider, QTextEdit
+    QScrollArea, QFormLayout, QSlider, QTextEdit, QListWidget, QListWidgetItem,
+    QSplitter
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
@@ -73,9 +74,10 @@ class UnifiedSettingsTab(QWidget):
         # 下載路徑
         path_layout = QHBoxLayout()
         self.path_edit = QLineEdit()
-        self.path_edit.setMaxLength(150)  # 限制150字元
-        self.path_edit.setMinimumWidth(250)  # 縮短寬度
-        self.path_edit.setMaximumWidth(350)  # 限制最大寬度
+        self.path_edit.setMaxLength(150)  # 150字元限制
+        self.path_edit.setMinimumWidth(400)  # 150字元寬度
+        self.path_edit.setMaximumWidth(500)
+        self.path_edit.setMinimumHeight(22)  # 緊湊高度
         self.path_edit.textChanged.connect(self.on_path_changed)
         
         browse_button = QPushButton("瀏覽")
@@ -88,9 +90,10 @@ class UnifiedSettingsTab(QWidget):
         # 檔名前綴
         prefix_layout = QHBoxLayout()
         self.prefix_edit = QLineEdit()
-        self.prefix_edit.setMaxLength(15)  # 限制15字元
-        self.prefix_edit.setMinimumWidth(150)  # 縮短寬度
-        self.prefix_edit.setMaximumWidth(200)  # 限制最大寬度
+        self.prefix_edit.setMaxLength(15)  # 15字元限制
+        self.prefix_edit.setMinimumWidth(100)  # 15字元寬度
+        self.prefix_edit.setMaximumWidth(120)
+        self.prefix_edit.setMinimumHeight(22)  # 緊湊高度
         self.prefix_edit.textChanged.connect(self.on_prefix_changed)
         
         self.prefix_length_label = QLabel("0/15")
@@ -100,15 +103,21 @@ class UnifiedSettingsTab(QWidget):
         prefix_layout.addWidget(self.prefix_length_label)
         group_layout.addRow("檔名前綴:", prefix_layout)
         
-        # 格式選項
+        # 格式選項 - 15字元寬度
         self.format_combo = QComboBox()
         self.format_combo.addItems(["最高品質", "高品質", "中等品質", "僅音頻"])
+        self.format_combo.setMinimumWidth(100)  # 15字元寬度
+        self.format_combo.setMaximumWidth(120)
+        self.format_combo.setMinimumHeight(22)  # 緊湊高度
         self.format_combo.currentTextChanged.connect(self.on_format_changed)
         group_layout.addRow("下載格式:", self.format_combo)
-        
-        # 解析度
+
+        # 解析度 - 15字元寬度
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems(["1080P", "720P", "480P", "360P", "自動"])
+        self.resolution_combo.setMinimumWidth(80)  # 15字元寬度
+        self.resolution_combo.setMaximumWidth(100)
+        self.resolution_combo.setMinimumHeight(22)  # 緊湊高度
         self.resolution_combo.currentTextChanged.connect(self.on_resolution_changed)
         group_layout.addRow("影片解析度:", self.resolution_combo)
         
@@ -189,42 +198,132 @@ class UnifiedSettingsTab(QWidget):
 
     def create_external_tools_settings(self, layout):
         """創建外部工具設定"""
-        group = QGroupBox("🔗 外部下載工具")
+        group = QGroupBox("🔗 外部來源列表")
         group_layout = QVBoxLayout(group)
+        group_layout.setSpacing(6)
 
         # 說明文字
-        info_label = QLabel("管理外部下載工具網址，每行一個工具，格式：名稱|網址")
-        info_label.setStyleSheet("color: #666; font-size: 10px; margin-bottom: 5px;")
+        info_label = QLabel("管理外部下載工具網址，支援新增/修改/刪除，格式：名稱|網址模板")
+        info_label.setStyleSheet("color: #666; font-size: 9px; margin-bottom: 3px;")
         group_layout.addWidget(info_label)
 
-        # 外部工具列表編輯器
-        self.external_tools_edit = QTextEdit()
-        self.external_tools_edit.setMaximumHeight(150)
-        self.external_tools_edit.setPlaceholderText(
-            "🌐 SaveFrom.net|https://zh.savefrom.net/#{url}\n"
-            "🎬 Y2Mate|https://www.y2mate.com/zh-cn/youtube/{url}\n"
-            "📱 SnapSave|https://snapsave.app/zh?url={url}"
-        )
-        self.external_tools_edit.textChanged.connect(self.on_external_tools_changed)
-        group_layout.addWidget(self.external_tools_edit)
+        # 工具列表和編輯區域的水平分割
+        tools_splitter = QSplitter(Qt.Horizontal)
 
-        # 按鈕區域
-        button_layout = QHBoxLayout()
+        # 左側：工具列表
+        list_widget = QWidget()
+        list_layout = QVBoxLayout(list_widget)
+        list_layout.setContentsMargins(0, 0, 0, 0)
 
-        # 重置為預設按鈕
+        list_label = QLabel("📋 工具列表:")
+        list_label.setStyleSheet("font-size: 10px; font-weight: bold;")
+        list_layout.addWidget(list_label)
+
+        self.tools_list_widget = QListWidget()
+        self.tools_list_widget.setMaximumHeight(120)
+        self.tools_list_widget.itemClicked.connect(self.on_tool_item_selected)
+        list_layout.addWidget(self.tools_list_widget)
+
+        # 列表操作按鈕
+        list_btn_layout = QHBoxLayout()
+        list_btn_layout.setSpacing(4)
+
+        add_tool_btn = QPushButton("➕")
+        add_tool_btn.setMaximumWidth(30)
+        add_tool_btn.setMaximumHeight(24)
+        add_tool_btn.setToolTip("新增工具")
+        add_tool_btn.clicked.connect(self.add_new_external_tool)
+        list_btn_layout.addWidget(add_tool_btn)
+
+        delete_tool_btn = QPushButton("🗑️")
+        delete_tool_btn.setMaximumWidth(30)
+        delete_tool_btn.setMaximumHeight(24)
+        delete_tool_btn.setToolTip("刪除選中工具")
+        delete_tool_btn.clicked.connect(self.delete_selected_tool)
+        list_btn_layout.addWidget(delete_tool_btn)
+
+        clear_all_btn = QPushButton("🧹")
+        clear_all_btn.setMaximumWidth(30)
+        clear_all_btn.setMaximumHeight(24)
+        clear_all_btn.setToolTip("清除所有")
+        clear_all_btn.clicked.connect(self.clear_all_tools)
+        list_btn_layout.addWidget(clear_all_btn)
+
+        list_btn_layout.addStretch()
+        list_layout.addLayout(list_btn_layout)
+
+        tools_splitter.addWidget(list_widget)
+
+        # 右側：編輯區域
+        edit_widget = QWidget()
+        edit_layout = QVBoxLayout(edit_widget)
+        edit_layout.setContentsMargins(0, 0, 0, 0)
+
+        edit_label = QLabel("✏️ 編輯工具:")
+        edit_label.setStyleSheet("font-size: 10px; font-weight: bold;")
+        edit_layout.addWidget(edit_label)
+
+        # 工具名稱
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("名稱:"))
+        self.tool_name_edit = QLineEdit()
+        self.tool_name_edit.setMaxLength(15)  # 15字元限制
+        self.tool_name_edit.setPlaceholderText("例如：🌐 SaveFrom")
+        name_layout.addWidget(self.tool_name_edit)
+        edit_layout.addLayout(name_layout)
+
+        # 工具網址
+        url_layout = QHBoxLayout()
+        url_layout.addWidget(QLabel("網址:"))
+        self.tool_url_edit = QLineEdit()
+        self.tool_url_edit.setMaxLength(150)  # 150字元限制
+        self.tool_url_edit.setPlaceholderText("例如：https://example.com/{url}")
+        url_layout.addWidget(self.tool_url_edit)
+        edit_layout.addLayout(url_layout)
+
+        # 編輯按鈕
+        edit_btn_layout = QHBoxLayout()
+        edit_btn_layout.setSpacing(4)
+
+        save_tool_btn = QPushButton("💾 保存")
+        save_tool_btn.setMaximumWidth(60)
+        save_tool_btn.setMaximumHeight(24)
+        save_tool_btn.clicked.connect(self.save_current_external_tool)
+        edit_btn_layout.addWidget(save_tool_btn)
+
+        test_tool_btn = QPushButton("🧪 測試")
+        test_tool_btn.setMaximumWidth(60)
+        test_tool_btn.setMaximumHeight(24)
+        test_tool_btn.clicked.connect(self.test_current_external_tool)
+        edit_btn_layout.addWidget(test_tool_btn)
+
+        edit_btn_layout.addStretch()
+        edit_layout.addLayout(edit_btn_layout)
+
+        tools_splitter.addWidget(edit_widget)
+
+        # 設置分割比例
+        tools_splitter.setSizes([200, 300])
+        group_layout.addWidget(tools_splitter)
+
+        # 底部按鈕
+        bottom_btn_layout = QHBoxLayout()
+        bottom_btn_layout.setSpacing(4)
+
         reset_btn = QPushButton("🔄 重置預設")
-        reset_btn.setMaximumWidth(100)
+        reset_btn.setMaximumWidth(80)
+        reset_btn.setMaximumHeight(24)
         reset_btn.clicked.connect(self.reset_external_tools)
-        button_layout.addWidget(reset_btn)
+        bottom_btn_layout.addWidget(reset_btn)
 
-        # 測試按鈕
-        test_btn = QPushButton("🧪 測試工具")
-        test_btn.setMaximumWidth(100)
-        test_btn.clicked.connect(self.test_external_tools)
-        button_layout.addWidget(test_btn)
+        manage_btn = QPushButton("⚙️ 進階管理")
+        manage_btn.setMaximumWidth(80)
+        manage_btn.setMaximumHeight(24)
+        manage_btn.clicked.connect(self.open_advanced_tools_manager)
+        bottom_btn_layout.addWidget(manage_btn)
 
-        button_layout.addStretch()
-        group_layout.addLayout(button_layout)
+        bottom_btn_layout.addStretch()
+        group_layout.addLayout(bottom_btn_layout)
 
         layout.addWidget(group)
 
@@ -455,12 +554,7 @@ class UnifiedSettingsTab(QWidget):
         )
 
         # 外部工具設定
-        external_tools = enhanced_setup_manager.get("external_tools", "")
-        if not external_tools:
-            # 如果沒有設定，使用預設值
-            self.reset_external_tools()
-        else:
-            self.external_tools_edit.setPlainText(external_tools)
+        self.load_external_tools_list()  # 載入到列表控件
 
         # 更新統計資訊
         self.update_statistics_display()
@@ -737,3 +831,140 @@ class UnifiedSettingsTab(QWidget):
             f"格式要求：名稱|網址\n"
             f"網址中使用 {{url}} 作為影片連結佔位符"
         )
+
+    def load_external_tools_list(self):
+        """載入外部工具列表到列表控件"""
+        self.tools_list_widget.clear()
+        tools_text = enhanced_setup_manager.get("external_tools", "")
+
+        if not tools_text:
+            self.reset_external_tools()
+            return
+
+        lines = [line.strip() for line in tools_text.split('\n') if line.strip()]
+        for line in lines:
+            if '|' in line:
+                name, url = line.split('|', 1)
+                item = QListWidgetItem(name.strip())
+                item.setData(Qt.UserRole, url.strip())
+                self.tools_list_widget.addItem(item)
+
+    def on_tool_item_selected(self, item):
+        """工具項目選中處理"""
+        name = item.text()
+        url = item.data(Qt.UserRole)
+
+        self.tool_name_edit.setText(name)
+        self.tool_url_edit.setText(url)
+
+    def add_new_external_tool(self):
+        """新增外部工具"""
+        self.tool_name_edit.clear()
+        self.tool_url_edit.clear()
+        self.tools_list_widget.clearSelection()
+
+    def delete_selected_tool(self):
+        """刪除選中的工具"""
+        current_item = self.tools_list_widget.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "提示", "請先選擇要刪除的工具")
+            return
+
+        reply = QMessageBox.question(
+            self, "確認刪除",
+            f"確定要刪除工具 '{current_item.text()}' 嗎？",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            row = self.tools_list_widget.row(current_item)
+            self.tools_list_widget.takeItem(row)
+            self.save_external_tools_list()
+            self.tool_name_edit.clear()
+            self.tool_url_edit.clear()
+
+    def clear_all_tools(self):
+        """清除所有工具"""
+        reply = QMessageBox.question(
+            self, "確認清除",
+            "確定要清除所有外部工具嗎？",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.tools_list_widget.clear()
+            self.tool_name_edit.clear()
+            self.tool_url_edit.clear()
+            self.save_external_tools_list()
+
+    def save_current_external_tool(self):
+        """保存當前編輯的工具"""
+        name = self.tool_name_edit.text().strip()
+        url = self.tool_url_edit.text().strip()
+
+        if not name or not url:
+            QMessageBox.warning(self, "錯誤", "請填寫完整的工具資訊")
+            return
+
+        if '{url}' not in url:
+            reply = QMessageBox.question(
+                self, "確認",
+                "網址模板中沒有 {url} 佔位符，確定要保存嗎？",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        # 檢查是否是編輯現有工具
+        current_item = self.tools_list_widget.currentItem()
+        if current_item:
+            # 編輯現有工具
+            current_item.setText(name)
+            current_item.setData(Qt.UserRole, url)
+        else:
+            # 新增工具
+            item = QListWidgetItem(name)
+            item.setData(Qt.UserRole, url)
+            self.tools_list_widget.addItem(item)
+
+        self.save_external_tools_list()
+        QMessageBox.information(self, "成功", "工具已保存")
+
+    def test_current_external_tool(self):
+        """測試當前編輯的工具"""
+        url = self.tool_url_edit.text().strip()
+        if not url:
+            QMessageBox.warning(self, "錯誤", "請先填寫工具網址")
+            return
+
+        test_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        final_url = url.replace('{url}', test_url)
+
+        try:
+            import webbrowser
+            webbrowser.open(final_url)
+        except Exception as e:
+            QMessageBox.warning(self, "錯誤", f"無法打開網址：{str(e)}")
+
+    def save_external_tools_list(self):
+        """保存工具列表到設定"""
+        tools = []
+        for i in range(self.tools_list_widget.count()):
+            item = self.tools_list_widget.item(i)
+            name = item.text()
+            url = item.data(Qt.UserRole)
+            tools.append(f"{name}|{url}")
+
+        tools_text = "\n".join(tools)
+        enhanced_setup_manager.set("external_tools", tools_text)
+        self.auto_save()
+
+    def open_advanced_tools_manager(self):
+        """打開進階工具管理器"""
+        try:
+            from external_tools_manager import ExternalToolsManager
+            manager = ExternalToolsManager(self)
+            manager.tools_updated.connect(self.load_external_tools_list)
+            manager.exec()
+        except Exception as e:
+            QMessageBox.warning(self, "錯誤", f"無法打開進階管理器：{str(e)}")

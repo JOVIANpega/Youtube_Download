@@ -56,19 +56,22 @@ class SimpleDownloadTab(QWidget):
         # URL輸入區域 - 緊湊設計
         url_group = QGroupBox("🔗 影片網址")
         url_layout = QVBoxLayout(url_group)
-        url_layout.setSpacing(8)
+        url_layout.setSpacing(4)  # 緊湊間距
+        url_layout.setContentsMargins(8, 6, 8, 6)  # 緊湊邊距
 
-        # URL輸入框 - 更緊湊
+        # URL輸入框 - 150字元寬度
         url_input_layout = QHBoxLayout()
+        url_input_layout.setSpacing(4)  # 緊湊間距
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("請輸入影片網址...")
-        self.url_edit.setMinimumHeight(30)
-        self.url_edit.setMaxLength(150)  # 限制150字元
-        self.url_edit.setMaximumWidth(500)  # 限制最大寬度
+        self.url_edit.setMinimumHeight(28)
+        self.url_edit.setMaxLength(150)  # 150字元限制
+        self.url_edit.setMinimumWidth(600)  # 150字元寬度
+        self.url_edit.setMaximumWidth(700)
 
         clear_btn = QPushButton("❌")
-        clear_btn.setMaximumWidth(30)
-        clear_btn.setMaximumHeight(30)
+        clear_btn.setMaximumWidth(28)
+        clear_btn.setMaximumHeight(28)
         clear_btn.clicked.connect(lambda: self.url_edit.clear())
 
         url_input_layout.addWidget(self.url_edit)
@@ -76,8 +79,8 @@ class SimpleDownloadTab(QWidget):
         url_layout.addLayout(url_input_layout)
 
         # 支援平台提示 - 更緊湊
-        platform_label = QLabel("✅ 支援：YouTube、Bilibili、TikTok、QQ影片")
-        platform_label.setStyleSheet("color: #27ae60; font-size: 10px; margin: 2px;")
+        platform_label = QLabel("✅ 支援：YouTube、Bilibili、TikTok、QQ影片等1000+網站")
+        platform_label.setStyleSheet("color: #27ae60; font-size: 9px; margin: 1px; padding: 2px;")
         url_layout.addWidget(platform_label)
 
         layout.addWidget(url_group)
@@ -85,19 +88,23 @@ class SimpleDownloadTab(QWidget):
         # 下載設定區域 - 緊湊設計
         settings_group = QGroupBox("⚙️ 下載設定")
         settings_layout = QVBoxLayout(settings_group)
-        settings_layout.setSpacing(6)
+        settings_layout.setSpacing(4)  # 更緊湊間距
+        settings_layout.setContentsMargins(8, 8, 8, 8)  # 緊湊邊距
 
-        # 第一行：下載路徑
+        # 第一行：下載路徑 - 150字元寬度
         path_layout = QHBoxLayout()
+        path_layout.setSpacing(4)
         path_label = QLabel("路徑:")
-        path_label.setMinimumWidth(50)
+        path_label.setMinimumWidth(40)
+        path_label.setMaximumWidth(40)
         self.path_edit = QLineEdit()
-        self.path_edit.setMaxLength(150)  # 限制150字元
-        self.path_edit.setMinimumHeight(26)
-        self.path_edit.setMaximumWidth(300)  # 限制最大寬度
+        self.path_edit.setMaxLength(150)  # 150字元限制
+        self.path_edit.setMinimumHeight(24)
+        self.path_edit.setMinimumWidth(500)  # 150字元寬度
+        self.path_edit.setMaximumWidth(600)
         browse_btn = QPushButton("瀏覽")
-        browse_btn.setMaximumWidth(45)
-        browse_btn.setMaximumHeight(26)
+        browse_btn.setMaximumWidth(40)
+        browse_btn.setMaximumHeight(24)
         browse_btn.clicked.connect(self.browse_path)
 
         path_layout.addWidget(path_label)
@@ -105,16 +112,19 @@ class SimpleDownloadTab(QWidget):
         path_layout.addWidget(browse_btn)
         settings_layout.addLayout(path_layout)
 
-        # 第二行：檔名前綴（下拉選單）
+        # 第二行：檔名前綴（下拉選單） - 15字元寬度
         prefix_layout = QHBoxLayout()
+        prefix_layout.setSpacing(4)
         prefix_label = QLabel("前綴:")
-        prefix_label.setMinimumWidth(50)
+        prefix_label.setMinimumWidth(40)
+        prefix_label.setMaximumWidth(40)
 
         self.prefix_combo = QComboBox()
         self.prefix_combo.setEditable(True)
-        self.prefix_combo.setMaximumHeight(26)
-        self.prefix_combo.setMaximumWidth(120)  # 限制最大寬度
-        self.prefix_combo.lineEdit().setMaxLength(15)  # 限制15字元
+        self.prefix_combo.setMaximumHeight(24)
+        self.prefix_combo.setMinimumWidth(100)  # 15字元寬度
+        self.prefix_combo.setMaximumWidth(120)
+        self.prefix_combo.lineEdit().setMaxLength(15)  # 15字元限制
 
         # 預設前綴選項
         default_prefixes = ["per-", "per best-", "per best2-", "per best3-", "per nice-", "per nice2-"]
@@ -123,32 +133,36 @@ class SimpleDownloadTab(QWidget):
         self.prefix_combo.currentTextChanged.connect(self.on_prefix_changed)
 
         self.prefix_count = QLabel("4/15")
-        self.prefix_count.setStyleSheet("color: #666; font-size: 9px;")
-        self.prefix_count.setMinimumWidth(35)
+        self.prefix_count.setStyleSheet("color: #666; font-size: 8px;")
+        self.prefix_count.setMinimumWidth(30)
+        self.prefix_count.setMaximumWidth(30)
 
         prefix_layout.addWidget(prefix_label)
         prefix_layout.addWidget(self.prefix_combo, 1)
         prefix_layout.addWidget(self.prefix_count)
         settings_layout.addLayout(prefix_layout)
 
-        # 第三行：品質和解析度 - 更緊湊
+        # 第三行：品質和解析度 - 15字元寬度
         quality_layout = QHBoxLayout()
+        quality_layout.setSpacing(4)
 
         quality_label = QLabel("品質:")
         quality_label.setMinimumWidth(40)
         quality_label.setMaximumWidth(40)
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["最高", "高品質", "中等", "音頻"])  # 縮短選項文字
-        self.quality_combo.setMaximumHeight(26)
-        self.quality_combo.setMaximumWidth(80)  # 限制寬度
+        self.quality_combo.setMaximumHeight(24)
+        self.quality_combo.setMinimumWidth(60)  # 15字元寬度
+        self.quality_combo.setMaximumWidth(80)
 
         resolution_label = QLabel("解析度:")
         resolution_label.setMinimumWidth(50)
         resolution_label.setMaximumWidth(50)
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems(["1080P", "720P", "480P", "360P", "自動"])
-        self.resolution_combo.setMaximumHeight(26)
-        self.resolution_combo.setMaximumWidth(70)  # 限制寬度
+        self.resolution_combo.setMaximumHeight(24)
+        self.resolution_combo.setMinimumWidth(60)  # 15字元寬度
+        self.resolution_combo.setMaximumWidth(80)
 
         quality_layout.addWidget(quality_label)
         quality_layout.addWidget(self.quality_combo)
@@ -157,10 +171,12 @@ class SimpleDownloadTab(QWidget):
         quality_layout.addStretch()  # 添加彈性空間
         settings_layout.addLayout(quality_layout)
 
-        # 第四行：自動合併選項
+        # 第四行：自動合併選項 - 緊湊
         merge_layout = QHBoxLayout()
+        merge_layout.setSpacing(4)
         self.auto_merge_cb = QCheckBox("自動合併音視頻")
         self.auto_merge_cb.setChecked(True)
+        self.auto_merge_cb.setStyleSheet("font-size: 10px;")  # 緊湊字體
         merge_layout.addWidget(self.auto_merge_cb)
         merge_layout.addStretch()
         settings_layout.addLayout(merge_layout)
