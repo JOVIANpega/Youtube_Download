@@ -414,8 +414,8 @@ class DownloadThread(QThread):
                     file_path = os.path.join(self.output_path, f'{self.prefix}{safe_title}.{file_ext}')
                     
                     if os.path.exists(file_path):
-                        from PySide6.QtCore import QTimer
-                        QTimer.singleShot(0, lambda: self.finished.emit(True, f"備用下載完成: {title}", file_path))
+                        logger.info(f"備用下載成功: {file_path}")
+                        self.finished.emit(True, f"備用下載完成: {title}", file_path)
                         return True
                     else:
                         # 查找可能的檔案
@@ -423,8 +423,8 @@ class DownloadThread(QThread):
                         for file in files:
                             if file.startswith(f"{self.prefix}{safe_title}"):
                                 file_path = os.path.join(self.output_path, file)
-                                from PySide6.QtCore import QTimer
-                                QTimer.singleShot(0, lambda: self.finished.emit(True, f"備用下載完成: {title}", file_path))
+                                logger.info(f"備用下載成功: {file_path}")
+                                self.finished.emit(True, f"備用下載完成: {title}", file_path)
                                 return True
                         
                         return False

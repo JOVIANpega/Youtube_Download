@@ -54,7 +54,7 @@ class UnifiedSettingsTab(QWidget):
         # self.create_platform_settings(scroll_layout)
         self.create_external_tools_settings(scroll_layout)
         self.create_advanced_settings(scroll_layout)
-        self.create_statistics_display(scroll_layout)
+        # 移除統計資訊顯示
         
         # 添加彈性空間
         scroll_layout.addStretch()
@@ -75,12 +75,15 @@ class UnifiedSettingsTab(QWidget):
         path_layout = QHBoxLayout()
         self.path_edit = QLineEdit()
         self.path_edit.setMaxLength(150)  # 150字元限制
-        self.path_edit.setMinimumWidth(400)  # 150字元寬度
-        self.path_edit.setMaximumWidth(500)
+        self.path_edit.setMinimumWidth(300)  # 縮短寬度
+        self.path_edit.setMaximumWidth(400)
         self.path_edit.setMinimumHeight(22)  # 緊湊高度
+        self.path_edit.setToolTip("設定下載目錄路徑，最多150個字元")
         self.path_edit.textChanged.connect(self.on_path_changed)
-        
+
         browse_button = QPushButton("瀏覽")
+        browse_button.setMaximumWidth(50)
+        browse_button.setToolTip("選擇下載目錄")
         browse_button.clicked.connect(self.browse_download_path)
         
         path_layout.addWidget(self.path_edit)
@@ -91,9 +94,10 @@ class UnifiedSettingsTab(QWidget):
         prefix_layout = QHBoxLayout()
         self.prefix_edit = QLineEdit()
         self.prefix_edit.setMaxLength(15)  # 15字元限制
-        self.prefix_edit.setMinimumWidth(100)  # 15字元寬度
-        self.prefix_edit.setMaximumWidth(120)
+        self.prefix_edit.setMinimumWidth(80)  # 20字元預留寬度
+        self.prefix_edit.setMaximumWidth(100)
         self.prefix_edit.setMinimumHeight(22)  # 緊湊高度
+        self.prefix_edit.setToolTip("設定檔名前綴，最多15個字元")
         self.prefix_edit.textChanged.connect(self.on_prefix_changed)
         
         self.prefix_length_label = QLabel("0/15")
@@ -103,26 +107,29 @@ class UnifiedSettingsTab(QWidget):
         prefix_layout.addWidget(self.prefix_length_label)
         group_layout.addRow("檔名前綴:", prefix_layout)
         
-        # 格式選項 - 15字元寬度
+        # 格式選項 - 20字元預留寬度
         self.format_combo = QComboBox()
         self.format_combo.addItems(["最高品質", "高品質", "中等品質", "僅音頻"])
-        self.format_combo.setMinimumWidth(100)  # 15字元寬度
-        self.format_combo.setMaximumWidth(120)
+        self.format_combo.setMinimumWidth(90)  # 20字元預留寬度
+        self.format_combo.setMaximumWidth(110)
         self.format_combo.setMinimumHeight(22)  # 緊湊高度
+        self.format_combo.setToolTip("選擇下載品質等級")
         self.format_combo.currentTextChanged.connect(self.on_format_changed)
         group_layout.addRow("下載格式:", self.format_combo)
 
-        # 解析度 - 15字元寬度
+        # 解析度 - 20字元預留寬度
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems(["1080P", "720P", "480P", "360P", "自動"])
-        self.resolution_combo.setMinimumWidth(80)  # 15字元寬度
-        self.resolution_combo.setMaximumWidth(100)
+        self.resolution_combo.setMinimumWidth(70)  # 20字元預留寬度
+        self.resolution_combo.setMaximumWidth(90)
         self.resolution_combo.setMinimumHeight(22)  # 緊湊高度
+        self.resolution_combo.setToolTip("選擇影片解析度")
         self.resolution_combo.currentTextChanged.connect(self.on_resolution_changed)
         group_layout.addRow("影片解析度:", self.resolution_combo)
-        
+
         # 自動合併
         self.auto_merge_cb = QCheckBox("自動合併音視頻")
+        self.auto_merge_cb.setToolTip("自動將音頻和視頻合併為單一檔案")
         self.auto_merge_cb.stateChanged.connect(self.on_auto_merge_changed)
         group_layout.addRow("", self.auto_merge_cb)
         
@@ -175,22 +182,31 @@ class UnifiedSettingsTab(QWidget):
         group = QGroupBox("🌐 網路設定")
         group_layout = QFormLayout(group)
         
-        # 超時時間
+        # 超時時間 - 20字元預留寬度
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(10, 300)
         self.timeout_spin.setSuffix(" 秒")
+        self.timeout_spin.setMinimumWidth(80)  # 20字元預留寬度
+        self.timeout_spin.setMaximumWidth(100)
+        self.timeout_spin.setToolTip("設定網路連接超時時間")
         self.timeout_spin.valueChanged.connect(self.on_network_changed)
         group_layout.addRow("連接超時:", self.timeout_spin)
-        
-        # 重試次數
+
+        # 重試次數 - 20字元預留寬度
         self.retry_spin = QSpinBox()
         self.retry_spin.setRange(1, 10)
+        self.retry_spin.setMinimumWidth(80)  # 20字元預留寬度
+        self.retry_spin.setMaximumWidth(100)
+        self.retry_spin.setToolTip("設定下載失敗時的重試次數")
         self.retry_spin.valueChanged.connect(self.on_network_changed)
         group_layout.addRow("重試次數:", self.retry_spin)
-        
-        # 最大同時下載數
+
+        # 最大同時下載數 - 20字元預留寬度
         self.max_downloads_spin = QSpinBox()
         self.max_downloads_spin.setRange(1, 10)
+        self.max_downloads_spin.setMinimumWidth(80)  # 20字元預留寬度
+        self.max_downloads_spin.setMaximumWidth(100)
+        self.max_downloads_spin.setToolTip("設定最大同時下載任務數量")
         self.max_downloads_spin.valueChanged.connect(self.on_network_changed)
         group_layout.addRow("最大同時下載:", self.max_downloads_spin)
         
@@ -231,21 +247,21 @@ class UnifiedSettingsTab(QWidget):
         add_tool_btn = QPushButton("➕")
         add_tool_btn.setMaximumWidth(30)
         add_tool_btn.setMaximumHeight(24)
-        add_tool_btn.setToolTip("新增工具")
+        add_tool_btn.setToolTip("新增外部下載工具")
         add_tool_btn.clicked.connect(self.add_new_external_tool)
         list_btn_layout.addWidget(add_tool_btn)
 
         delete_tool_btn = QPushButton("🗑️")
         delete_tool_btn.setMaximumWidth(30)
         delete_tool_btn.setMaximumHeight(24)
-        delete_tool_btn.setToolTip("刪除選中工具")
+        delete_tool_btn.setToolTip("刪除選中的工具")
         delete_tool_btn.clicked.connect(self.delete_selected_tool)
         list_btn_layout.addWidget(delete_tool_btn)
 
         clear_all_btn = QPushButton("🧹")
         clear_all_btn.setMaximumWidth(30)
         clear_all_btn.setMaximumHeight(24)
-        clear_all_btn.setToolTip("清除所有")
+        clear_all_btn.setToolTip("清除所有工具")
         clear_all_btn.clicked.connect(self.clear_all_tools)
         list_btn_layout.addWidget(clear_all_btn)
 
@@ -288,12 +304,14 @@ class UnifiedSettingsTab(QWidget):
         save_tool_btn = QPushButton("💾 保存")
         save_tool_btn.setMaximumWidth(60)
         save_tool_btn.setMaximumHeight(24)
+        save_tool_btn.setToolTip("保存當前編輯的工具")
         save_tool_btn.clicked.connect(self.save_current_external_tool)
         edit_btn_layout.addWidget(save_tool_btn)
 
         test_tool_btn = QPushButton("🧪 測試")
         test_tool_btn.setMaximumWidth(60)
         test_tool_btn.setMaximumHeight(24)
+        test_tool_btn.setToolTip("測試工具網址是否有效")
         test_tool_btn.clicked.connect(self.test_current_external_tool)
         edit_btn_layout.addWidget(test_tool_btn)
 
@@ -310,15 +328,10 @@ class UnifiedSettingsTab(QWidget):
         bottom_btn_layout = QHBoxLayout()
         bottom_btn_layout.setSpacing(4)
 
-        reset_btn = QPushButton("🔄 重置預設")
-        reset_btn.setMaximumWidth(80)
-        reset_btn.setMaximumHeight(24)
-        reset_btn.clicked.connect(self.reset_external_tools)
-        bottom_btn_layout.addWidget(reset_btn)
-
         manage_btn = QPushButton("⚙️ 進階管理")
         manage_btn.setMaximumWidth(80)
         manage_btn.setMaximumHeight(24)
+        manage_btn.setToolTip("打開進階外部工具管理器")
         manage_btn.clicked.connect(self.open_advanced_tools_manager)
         bottom_btn_layout.addWidget(manage_btn)
 
@@ -420,52 +433,15 @@ class UnifiedSettingsTab(QWidget):
         
         layout.addWidget(group)
     
-    def create_statistics_display(self, layout):
-        """創建統計資訊顯示"""
-        group = QGroupBox("📊 統計資訊")
-        group_layout = QFormLayout(group)
-        
-        self.stats_labels = {}
-        stats_items = [
-            ("total_downloads", "總下載次數:"),
-            ("successful_downloads", "成功下載:"),
-            ("failed_downloads", "失敗下載:"),
-            ("total_size_downloaded", "總下載大小:")
-        ]
-        
-        for key, label_text in stats_items:
-            label = QLabel("0")
-            label.setStyleSheet("color: #2c3e50; font-weight: bold;")
-            group_layout.addRow(label_text, label)
-            self.stats_labels[key] = label
-        
-        layout.addWidget(group)
+    # 移除統計資訊顯示功能
     
     def create_bottom_buttons(self, layout):
         """創建底部按鈕"""
         button_layout = QHBoxLayout()
         
-        # 匯入/匯出按鈕
-        import_button = QPushButton("📥 匯入設定")
-        import_button.clicked.connect(self.import_settings)
+        # 移除匯入/匯出功能
         
-        export_button = QPushButton("📤 匯出設定")
-        export_button.clicked.connect(self.export_settings)
-        
-        # 主要按鈕
-        reset_button = QPushButton("🔄 重置為預設值")
-        reset_button.clicked.connect(self.reset_to_defaults)
-        reset_button.setStyleSheet("""
-            QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 6px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #c0392b; }
-        """)
+        # 移除重置預設值按鈕
         
         save_button = QPushButton("💾 儲存設定")
         save_button.clicked.connect(self.save_settings)
@@ -495,10 +471,7 @@ class UnifiedSettingsTab(QWidget):
             QPushButton:hover { background-color: #2980b9; }
         """)
         
-        button_layout.addWidget(import_button)
-        button_layout.addWidget(export_button)
         button_layout.addStretch()
-        button_layout.addWidget(reset_button)
         button_layout.addWidget(save_button)
         button_layout.addWidget(apply_button)
         
@@ -556,30 +529,10 @@ class UnifiedSettingsTab(QWidget):
         # 外部工具設定
         self.load_external_tools_list()  # 載入到列表控件
 
-        # 更新統計資訊
-        self.update_statistics_display()
-
         # 更新前綴計數
         self.on_prefix_changed()
 
-    def update_statistics_display(self):
-        """更新統計資訊顯示"""
-        stats = enhanced_setup_manager.get("statistics", {})
-
-        self.stats_labels["total_downloads"].setText(str(stats.get("total_downloads", 0)))
-        self.stats_labels["successful_downloads"].setText(str(stats.get("successful_downloads", 0)))
-        self.stats_labels["failed_downloads"].setText(str(stats.get("failed_downloads", 0)))
-
-        # 格式化下載大小
-        total_size = stats.get("total_size_downloaded", 0)
-        if total_size > 1024 * 1024 * 1024:  # GB
-            size_text = f"{total_size / (1024 * 1024 * 1024):.1f} GB"
-        elif total_size > 1024 * 1024:  # MB
-            size_text = f"{total_size / (1024 * 1024):.1f} MB"
-        else:  # KB
-            size_text = f"{total_size / 1024:.1f} KB"
-
-        self.stats_labels["total_size_downloaded"].setText(size_text)
+    # 移除統計資訊更新方法
 
     # 事件處理方法
     def on_path_changed(self):
@@ -808,7 +761,14 @@ class UnifiedSettingsTab(QWidget):
             "📺 ClipConverter|https://www.clipconverter.cc/?url={url}",
             "🌟 Online Video Converter|https://www.onlinevideoconverter.com/zh/video-converter?url={url}"
         ]
-        self.external_tools_edit.setPlainText("\n".join(default_tools))
+
+        # 更新到設定並重新載入列表
+        tools_text = "\n".join(default_tools)
+        enhanced_setup_manager.set("external_tools", tools_text)
+        enhanced_setup_manager.save_settings()
+
+        # 重新載入列表控件
+        self.load_external_tools_list()
 
     def test_external_tools(self):
         """測試外部工具"""

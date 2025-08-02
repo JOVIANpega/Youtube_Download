@@ -219,15 +219,17 @@ class ExternalToolsManager(QDialog):
         """編輯內容變更"""
         name = self.name_edit.text().strip()
         url = self.url_edit.text().strip()
-        
+
         if name and url:
             test_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
             preview_url = url.replace('{url}', test_url)
             self.preview_label.setText(f"工具名稱: {name}\n網址模板: {url}\n\n測試預覽:\n{preview_url}")
             self.test_btn.setEnabled(True)
+            self.save_btn.setEnabled(True)  # 啟用保存按鈕
         else:
             self.preview_label.setText("請填寫完整的工具資訊...")
             self.test_btn.setEnabled(False)
+            self.save_btn.setEnabled(False)  # 禁用保存按鈕
     
     def add_new_tool(self):
         """新增工具"""
@@ -292,6 +294,7 @@ class ExternalToolsManager(QDialog):
         
         self.save_tools()
         self.clear_edit_area()
+        QMessageBox.information(self, "成功", "工具已保存成功！")
     
     def cancel_edit(self):
         """取消編輯"""
