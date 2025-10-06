@@ -1,0 +1,17 @@
+[notice] To update, run: python.exe -m pip install --upgrade pip
+PS M:\PYTHON\YT_DOWNLOADER3> python main.py
+啟動應用程式失敗: name 'VideoDownloader' is not defined
+Traceback (most recent call last):
+  File "M:\PYTHON\YT_DOWNLOADER3\main.py", line 168, in main
+    app = MainApplication()
+  File "M:\PYTHON\YT_DOWNLOADER3\main.py", line 34, in __init__
+    self.setup_ui()
+    ~~~~~~~~~~~~~^^
+  File "M:\PYTHON\YT_DOWNLOADER3\main.py", line 90, in setup_ui
+    self.download_tab = DownloadTab(self.notebook, self.font_manager, self.settings_manager)
+                        ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "M:\PYTHON\YT_DOWNLOADER3\ui_download.py", line 39, in __init__        
+    self.downloader = VideoDownloader()
+                      ^^^^^^^^^^^^^^^
+NameError: name 'VideoDownloader' is not defined
+PS M:\PYTHON\YT_DOWNLOADER3> 
