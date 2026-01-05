@@ -118,7 +118,7 @@ class FontManager:
             style = ttk.Style(self.root)
             # 為常見樣式設置字體
             style.configure('TLabel', font=self.get_font('default'))
-            style.configure('TButton', font=self.get_font('default'))
+            style.configure('TButton', font=self.get_font('large'), padding=(8, 4))
             style.configure('TEntry', font=self.get_font('default'))
             style.configure('TCombobox', font=self.get_font('default'))
             style.configure('TRadiobutton', font=self.get_font('default'))

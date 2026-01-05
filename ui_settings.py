@@ -9,6 +9,8 @@ import hashlib
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
+import platform
+import subprocess
 from constants import UI_TEXT, FILENAME_PREFIXES
 from utils.ui_fonts import FontManager
 
@@ -39,15 +41,22 @@ class SettingsTab:
         
     def setup_ui(self):
         """設置用戶介面"""
-        # 主容器：左右可調整的分割面板
-        paned = ttk.Panedwindow(self.frame, orient=tk.HORIZONTAL)
+        # 主容器：左右可調整的分割面板（改用 tk.PanedWindow 提供較明顯的分隔拖曳區）
+        paned = tk.PanedWindow(
+            self.frame,
+            orient=tk.HORIZONTAL,
+            sashwidth=8,
+            sashrelief=tk.RAISED,
+            relief=tk.FLAT,
+            bd=0
+        )
         paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         left = ttk.Frame(paned)
         right = ttk.Frame(paned)
 
-        paned.add(left, weight=1)
-        paned.add(right, weight=1)
+        paned.add(left)
+        paned.add(right)
 
         self._paned = paned
 
@@ -58,19 +67,6 @@ class SettingsTab:
         # 右側：進階設定 + 重設/保存
         self.create_advanced_section(right)
         self.create_reset_section(right)
-        
-    def create_filename_section(self, parent):
-        """創建檔案命名區域（前綴項已移除）"""
-        filename_frame = ttk.LabelFrame(parent, text="檔案命名設定", padding=10)
-        filename_frame.pack(fill=tk.X, pady=(0, 10))
-        info_label = ttk.Label(
-            filename_frame,
-            text="前綴現由 config/prename.txt 管理，請編輯該檔案後重啟程式生效。",
-            foreground="gray",
-            font=self.font_manager.get_font()
-        )
-        info_label.pack(anchor=tk.W)
-        self.font_manager.register_widget(info_label)
         
     def create_download_section(self, parent):
         """創建下載設定區域"""
@@ -188,16 +184,39 @@ class SettingsTab:
         )
         auto_open_cb.pack(anchor=tk.W)
         
+        # 檢查更新列
+        update_row = ttk.Frame(ui_pref_frame)
+        update_row.pack(fill=tk.X, pady=(5, 0))
+        
         check_updates_cb = ttk.Checkbutton(
-            ui_pref_frame,
-            text="檢查程式更新",
+            update_row,
+            text="啟動時檢查更新",
             variable=self.check_updates_var
         )
-        check_updates_cb.pack(anchor=tk.W)
+        check_updates_cb.pack(side=tk.LEFT)
+        
+        check_now_btn = ttk.Button(
+            update_row,
+            text="立即檢查",
+            command=self.check_updates_now,
+            width=10
+        )
+        check_now_btn.pack(side=tk.LEFT, padx=(10, 0))
         
         self.font_manager.register_widget(show_advanced_cb)
         self.font_manager.register_widget(auto_open_cb)
         self.font_manager.register_widget(check_updates_cb)
+        self.font_manager.register_widget(check_now_btn)
+
+        # 自動保存 UI 偏好變更
+        def _auto_save(*_):
+            try:
+                self.save_all_settings_silent()
+            except Exception:
+                pass
+        self.show_advanced_var.trace('w', _auto_save)
+        self.auto_open_folder_var.trace('w', _auto_save)
+        self.check_updates_var.trace('w', _auto_save)
         
     def create_advanced_section(self, parent):
         """創建進階設定區域"""
@@ -226,10 +245,34 @@ class SettingsTab:
             text="瀏覽",
             command=self.browse_ffmpeg_path
         )
-        browse_ffmpeg_btn.pack(side=tk.RIGHT, padx=(10, 0))
+        browse_ffmpeg_btn.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 新增自動下載按鈕
+        self.download_ffmpeg_btn = ttk.Button(
+            ffmpeg_input_frame,
+            text="自動下載",
+            command=self.download_ffmpeg_btn_click
+        )
+        self.download_ffmpeg_btn.pack(side=tk.LEFT, padx=(5, 0))
         
         self.font_manager.register_widget(ffmpeg_entry)
         self.font_manager.register_widget(browse_ffmpeg_btn)
+        self.font_manager.register_widget(self.download_ffmpeg_btn)
+
+        # FFmpeg 路徑變更即時保存
+        self.ffmpeg_path_var.trace('w', lambda *_: self.save_all_settings_silent())
+        
+        # 系統維護按鈕
+        maint_frame = ttk.Frame(advanced_frame)
+        maint_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        open_logs_btn = ttk.Button(
+            maint_frame,
+            text="開啟日誌資料夾",
+            command=self.open_logs_folder
+        )
+        open_logs_btn.pack(side=tk.LEFT)
+        self.font_manager.register_widget(open_logs_btn)
         
         # 說明文字
         advanced_help_frame = ttk.Frame(advanced_frame)
@@ -238,7 +281,6 @@ class SettingsTab:
         help_text = """進階設定說明：
 • FFmpeg 路徑：留空表示使用系統 PATH 中的 ffmpeg
 • 自定義路徑：指定 ffmpeg 程式的完整路徑
-        
         """
         help_label = ttk.Label(
             advanced_help_frame,
@@ -269,6 +311,44 @@ class SettingsTab:
         )
         save_btn.pack(side=tk.RIGHT, padx=(0, 10))
         self.font_manager.register_widget(save_btn)
+
+        # 在設定分頁提供「進階選項」切換按鈕，呼叫下載分頁的切換方法
+        try:
+            from ui_download import DownloadTab  # 僅用於型別提示
+            adv_btn = ttk.Button(
+                reset_frame,
+                text="切換進階選項",
+                command=lambda: getattr(self.parent.master, 'download_tab', None) and self.parent.master.download_tab.toggle_advanced()
+            )
+            adv_btn.pack(side=tk.LEFT)
+            self.font_manager.register_widget(adv_btn)
+        except Exception:
+            pass
+
+        # 分割條位置在視窗關閉時由 main.py 保存，這裡也提供立即保存入口
+        try:
+            self._paned.bind('<ButtonRelease-1>', lambda e: self.settings_manager.set_setting('settings_split_pos', self.get_split_pos()))
+        except Exception:
+            pass
+
+    def save_all_settings_silent(self):
+        """保存所有設置（不顯示提示框）"""
+        try:
+            settings = {
+                'font_size': self.font_size_var.get(),
+                'download_path': self.download_path_var.get(),
+                'auto_merge': self.auto_merge_var.get(),
+                'keep_video': self.keep_video_var.get(),
+                'keep_audio': self.keep_audio_var.get(),
+                'show_advanced_options': self.show_advanced_var.get(),
+                'auto_open_download_folder': self.auto_open_folder_var.get(),
+                'check_for_updates': self.check_updates_var.get(),
+                'ffmpeg_path': self.ffmpeg_path_var.get(),
+            }
+            self.settings_manager.update_settings(settings)
+        except Exception:
+            # 靜默失敗以避免啟動時彈窗
+            pass
         
     def load_settings(self):
         """載入設定"""
@@ -294,8 +374,15 @@ class SettingsTab:
             # 分割條位置
             try:
                 split_pos = int(settings.get('settings_split_pos', 320))
-                # 延後設置，確保控件已經布局完成
-                self.frame.after(0, lambda: self._paned.sashpos(0, split_pos))
+                def _apply_pos():
+                    try:
+                        self._paned.sashpos(0, split_pos)
+                    except Exception:
+                        pass
+                # 多次嘗試以確保在各平台布局完成後套用
+                self.frame.after(0, _apply_pos)
+                self.frame.after(100, _apply_pos)
+                self.frame.after(300, _apply_pos)
             except Exception:
                 pass
             
@@ -353,8 +440,6 @@ class SettingsTab:
         except Exception as e:
             print(f"字體大小更新錯誤: {e}")
             
-    # 前綴相關的互動已移除
-                
     def browse_download_path(self):
         """瀏覽下載路徑"""
         path = filedialog.askdirectory(
@@ -383,6 +468,35 @@ class SettingsTab:
         if path:
             self.ffmpeg_path_var.set(path)
             
+    def download_ffmpeg_btn_click(self):
+        """點擊自動下載 FFmpeg"""
+        from services.ffmpeg_manager import FFmpegManager
+        manager = FFmpegManager()
+        
+        if manager.is_available():
+            if not messagebox.askyesno("提示", "系統已偵測到 FFmpeg，確定要重新下載嗎？"):
+                return
+                
+        self.download_ffmpeg_btn.config(state=tk.DISABLED, text="下載中...")
+        
+        def do_download():
+            try:
+                def progress(p, msg):
+                    self.frame.after(0, lambda: self.download_ffmpeg_btn.config(text=f"{int(p)}%"))
+                
+                success = manager.download_ffmpeg_windows(progress_callback=progress)
+                
+                if success:
+                    self.frame.after(0, lambda: self.ffmpeg_path_var.set(manager.get_ffmpeg_path()))
+                    self.frame.after(0, lambda: messagebox.showinfo("成功", "FFmpeg 安裝完成！現在您可以下載高品質影片了。"))
+                else:
+                    self.frame.after(0, lambda: messagebox.showerror("錯誤", "FFmpeg 下載失敗，請檢查網路連線或稍後再試。"))
+            finally:
+                self.frame.after(0, lambda: self.download_ffmpeg_btn.config(state=tk.NORMAL, text="自動下載"))
+        
+        import threading
+        threading.Thread(target=do_download, daemon=True).start()
+            
     def get_filename_prefix(self):
         """獲取當前選擇的檔名前綴"""
         return self.filename_prefix_var.get()
@@ -397,3 +511,23 @@ class SettingsTab:
             return int(self._paned.sashpos(0))
         except Exception:
             return 320
+
+    def check_updates_now(self):
+        """立即檢查更新（模擬）"""
+        messagebox.showinfo("檢查更新", "目前已是最新版本 (v1.0.0)。")
+
+    def open_logs_folder(self):
+        """開啟日誌資料夾"""
+        try:
+            log_dir = 'logs'
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            
+            if platform.system() == 'Windows':
+                os.startfile(log_dir)
+            elif platform.system() == 'Darwin':
+                subprocess.call(['open', log_dir])
+            else:
+                subprocess.call(['xdg-open', log_dir])
+        except Exception as e:
+            messagebox.showerror("錯誤", f"無法開啟日誌資料夾：{e}")

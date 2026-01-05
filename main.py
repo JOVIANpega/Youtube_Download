@@ -12,9 +12,12 @@ import os
 import threading
 import traceback
 
+from services.history_store import HistoryStore
+
 # 導入自定義模組
 from ui_download import DownloadTab
 from ui_external import ExternalTab
+from ui_history import HistoryTab
 from ui_settings import SettingsTab
 from utils.ui_fonts import FontManager
 from utils.path_utils import get_resource_path
@@ -58,6 +61,8 @@ class MainApplication:
         """設置管理器"""
         self.settings_manager = SettingsManager()
         self.font_manager = FontManager(self.root)
+        self.history_store = HistoryStore()
+        self.root.option_add("*Font", self.font_manager.get_font())
         
     def setup_ui(self):
         """設置用戶介面"""
@@ -84,22 +89,53 @@ class MainApplication:
         
         # 創建分頁控件
         self.notebook = ttk.Notebook(main_frame)
+        # 樣式：TAB 標籤顏色與 hover 效果
+        try:
+            style = ttk.Style(self.root)
+            # Notebook 背景與分頁未選取顏色
+            style.configure('TNotebook', background='#e9edf3')
+            style.configure('TNotebook.Tab', padding=(12, 6), background='#f2f4f7', foreground='#000000')
+            # 分頁顏色對比：選取深藍底、黑字；未選取黑色字；hover 淺藍底
+            style.map('TNotebook.Tab',
+                      background=[('selected', '#2b6cb0'), ('active', '#e6f0ff'), ('!selected', '#f2f4f7')],
+                      foreground=[('selected', '#000000'), ('!selected', '#000000'), ('active', '#000000')])
+        except Exception:
+            pass
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
         # 創建各個分頁
-        self.download_tab = DownloadTab(self.notebook, self.font_manager, self.settings_manager)
+        self.download_tab = DownloadTab(self.notebook, self.font_manager, self.settings_manager, self.history_store)
         self.external_tab = ExternalTab(self.notebook, self.font_manager)
+        self.history_tab = HistoryTab(self.notebook, self.font_manager, self.history_store)
         self.settings_tab = SettingsTab(self.notebook, self.font_manager, self.settings_manager)
         
         # 添加分頁到筆記本
         self.notebook.add(self.download_tab.frame, text="下載")
         self.notebook.add(self.external_tab.frame, text="外部下載器")
+        self.notebook.add(self.history_tab.frame, text="歷史記錄")
         self.notebook.add(self.settings_tab.frame, text="設定")
+        
+        # 綁定分頁切換事件，自動刷新內容
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
         
         # 創建狀態列
         self.status_bar = ttk.Label(main_frame, text="就緒", relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
         
+    def on_tab_changed(self, event):
+        """當切換分頁時執行"""
+        selected_tab = self.notebook.select()
+        tab_text = self.notebook.tab(selected_tab, "text")
+        
+        if tab_text == "歷史記錄":
+            self.history_tab.refresh_data()
+        elif tab_text == "設定":
+            self.settings_tab.load_settings()
+        elif tab_text == "下載":
+            # 下載分頁若有需要刷新 (如前綴清單等)
+            if hasattr(self.download_tab, 'reload_prefix_list'):
+                self.download_tab.reload_prefix_list()
+
     def setup_exception_handler(self):
         """設置全域例外處理"""
         def handle_exception(exc_type, exc_value, exc_traceback):

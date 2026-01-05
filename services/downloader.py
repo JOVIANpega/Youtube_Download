@@ -49,6 +49,7 @@ class DownloadTask:
         self.downloaded_bytes = 0
         self.total_bytes = 0
         self.filename = ""
+        self.video_id = ""
         self.error_message = ""
         self.start_time = None
         self.end_time = None
@@ -65,6 +66,7 @@ class DownloadTask:
             'downloaded_bytes': self.downloaded_bytes,
             'total_bytes': self.total_bytes,
             'filename': self.filename,
+            'video_id': self.video_id,
             'error_message': self.error_message,
             'start_time': self.start_time,
             'end_time': self.end_time,
@@ -139,21 +141,25 @@ class VideoDownloader:
                 if 'eta' in d and d['eta']:
                     self.current_task.eta = d['eta']
                     
-                # 更新檔名
-                if 'filename' in d:
-                    self.current_task.filename = os.path.basename(d['filename'])
-                    
+                # 判斷當前下載的部分
+                filename = d.get('filename', '')
+                ext = os.path.splitext(filename)[1].lower()
+                part_msg = "下載音訊" if ext in ['.m4a', '.mp3', '.aac', '.opus'] else "下載影片"
+                
                 # 回調進度
                 speed_str = f"{get_file_size_str(self.current_task.speed)}/s" if self.current_task.speed else ""
                 eta_str = f"ETA: {self.current_task.eta}s" if self.current_task.eta else ""
-                message = f"{speed_str} {eta_str}".strip()
+                message = f"[{part_msg}] {speed_str} {eta_str}".strip()
                 
                 self._update_progress(self.current_task.progress, message)
                 
             elif d['status'] == 'finished':
-                self.current_task.filename = os.path.basename(d['filename'])
+                # 如果還沒設過檔名或檔名包含 .part，更新它
+                new_filename = os.path.basename(d.get('filename', ''))
+                if new_filename and (not self.current_task.filename or '.part' in self.current_task.filename):
+                    self.current_task.filename = new_filename
                 self.current_task.progress = 100.0
-                self._update_progress(100.0, "下載完成")
+                self._update_progress(100.0, "下載/合併完成")
                 
             elif d['status'] == 'error':
                 self._update_status(DownloadStatus.FAILED, str(d.get('error', '未知錯誤')))
@@ -178,6 +184,7 @@ class VideoDownloader:
                 
             return {
                 'title': info.get('title', '未知標題'),
+                'id': info.get('id', 'no_id'),
                 'duration': info.get('duration', 0),
                 'uploader': info.get('uploader', '未知上傳者'),
                 'upload_date': info.get('upload_date', ''),
@@ -194,7 +201,8 @@ class VideoDownloader:
             
     def download(self, url: str, output_path: str, options: Dict[str, Any] = None,
                 cancellation_token: CancellationToken = None,
-                progress_reporter: ProgressReporter = None) -> str:
+                progress_reporter: ProgressReporter = None,
+                logger: Any = None) -> str:
         """下載視頻"""
         
         if yt_dlp is None:
@@ -230,11 +238,13 @@ class VideoDownloader:
             platform = video_info.get('platform', '')
             clean_title = FilenameManager.clean_filename_for_platform(title, platform)
             
-            # 生成唯一檔名
-            base_filename = f"{clean_title}.%(ext)s"
+            # 生成唯一檔名 (標題 + ID)
+            video_id = video_info.get('id', 'video')
+            self.current_task.video_id = video_id
+            base_filename = f"{clean_title} [{video_id}].%(ext)s"
             
             # 設置 yt-dlp 選項
-            ydl_opts = self._build_ydl_options(output_path, base_filename, options)
+            ydl_opts = self._build_ydl_options(output_path, base_filename, options, logger)
             ydl_opts['progress_hooks'] = [self._progress_hook]
             
             # 檢查 FFmpeg
@@ -271,7 +281,7 @@ class VideoDownloader:
             
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"下載失敗: {error_msg}")
+            # logger.error(f"下載失敗: {error_msg}")
             self._update_status(DownloadStatus.FAILED, error_msg)
             raise Exception(f"下載失敗: {error_msg}")
             
@@ -280,7 +290,7 @@ class VideoDownloader:
                 self.current_task.end_time = time.time()
                 
     def _build_ydl_options(self, output_path: str, filename_template: str, 
-                          options: Dict[str, Any]) -> Dict[str, Any]:
+                          options: Dict[str, Any], logger: Any = None) -> Dict[str, Any]:
         """構建 yt-dlp 選項"""
         
         # 基本選項
@@ -291,7 +301,15 @@ class VideoDownloader:
             'writeautomaticsub': options.get('download_auto_subtitles', False),
             'ignoreerrors': False,
             'no_warnings': False,
+            'logger': logger,
+            'noplaylist': True,  # 確保不下載整個播放列表
+            'cachedir': False,   # 停用快取目錄 (正確參數名稱)
         }
+        
+        # 帳號授權 (Cookies from browser)
+        browser = options.get('browser', 'none')
+        if browser and browser != 'none':
+            ydl_opts['cookiesfrombrowser'] = (browser,)
         
         # 品質選項
         quality = options.get('quality', 'best')

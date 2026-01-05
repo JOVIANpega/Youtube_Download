@@ -1,13 +1,13 @@
 {
-  "window_geometry": "603x580+382+115",
+  "window_geometry": "776x727+173+35",
   "font_size": 9,
   "download_path": "M:/TEMP",
-  "settings_split_pos": 252,
+  "settings_split_pos": 320,
   "auto_merge": true,
   "keep_video": true,
   "keep_audio": false,
   "show_advanced_options": false,
-  "auto_open_download_folder": false,
+  "auto_open_download_folder": true,
   "check_for_updates": true,
   "ffmpeg_path": "",
   "recent_urls": []

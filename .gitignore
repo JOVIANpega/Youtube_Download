@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env/
+
+# Build and Distribution
+build/
+dist/
+*.spec
+
+# Logs
+logs/
+*.log
+
+# Project specific data/configs
+data/
+config/settings.json
+config/prename.txt
+config/quick_links.txt
+
+# OS
+.DS_Store
+Thumbs.db
