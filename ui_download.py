@@ -387,28 +387,27 @@ class DownloadTab:
                 default_path = os.path.join(os.path.expanduser('~'), 'Downloads')
                 self.download_path_var.set(default_path)
                 
-            # 載入品質設定
+            # 載入畫質設定
             saved_quality = settings.get('quality_preference', 'best')
-            # 如果存的是代碼 (如 1080p)，轉換為顯示名稱 (如 1080p)
-            q_display = saved_quality
+            q_display = "1080p (最佳)" # Default
             for text, val in QUALITY_OPTIONS:
                 if val == saved_quality:
                     q_display = text
                     break
             self.quality_var.set(q_display)
             
+            # 載入瀏覽器設定
             saved_browser = settings.get('browser_preference', 'none')
             browser_map_inv = {
-                'none': '不使用 (預設)',
-                'chrome': 'Chrome (推薦)',
+                'none': '不使用',
+                'chrome': 'Chrome',
                 'edge': 'Edge',
                 'firefox': 'Firefox',
                 'opera': 'Opera',
                 'brave': 'Brave',
-                'vivaldi': 'Vivaldi',
                 'safari': 'Safari'
             }
-            display_value = browser_map_inv.get(saved_browser, '不使用 (預設)')
+            display_value = browser_map_inv.get(saved_browser, '不使用')
             self.browser_var.set(display_value)
             
             saved_prefix = settings.get('filename_prefix', '')
@@ -461,15 +460,12 @@ class DownloadTab:
     def _get_browser_code(self, display_name):
         """將瀏覽器顯示名稱轉換為代碼"""
         browser_map = {
-            '無': 'none',
-            '不使用 (預設)': 'none',
+            '不使用': 'none',
             'Chrome': 'chrome',
-            'Chrome (推薦)': 'chrome',
             'Edge': 'edge',
             'Firefox': 'firefox',
             'Opera': 'opera',
             'Brave': 'brave',
-            'Vivaldi': 'vivaldi',
             'Safari': 'safari'
         }
         return browser_map.get(display_name, 'none')
@@ -635,6 +631,17 @@ class DownloadTab:
         
         options = self.create_download_options()
         
+        # 立即紀錄到歷史紀錄 (狀態為正在下載)
+        try:
+            self.history_store.add_record({
+                'url': url,
+                'title': "正在獲取資訊...",
+                'platform': URLValidator.detect_platform(url) or "未知",
+                'status': '正在下載'
+            })
+        except Exception:
+            pass
+            
         threading.Thread(target=self._download_thread, 
                         args=(url, download_path, options),
                         daemon=True).start()
@@ -658,6 +665,20 @@ class DownloadTab:
                 self.frame.after(0, lambda: self.show_message(f"下載失敗: {message}", "error"))
                 self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] ERROR: {message}"))
                 self.frame.after(0, lambda: self.update_dashboard_info("下載失敗", 0, message))
+                
+                # 更新最後一條紀錄為失敗
+                try:
+                    history = self.history_store.get_history()
+                    for record in history:
+                        if record.get('url') == url and record.get('status') == '正在下載':
+                            record.update({
+                                'status': '失敗',
+                                'error': message
+                            })
+                            break
+                    self.history_store._save()
+                except Exception:
+                    pass
             elif status == DownloadStatus.CANCELLED:
                 self.frame.after(0, lambda: self.show_message("下載已取消", "warning"))
                 self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 下載已取消"))
@@ -665,60 +686,114 @@ class DownloadTab:
         downloader.set_progress_callback(progress_callback)
         downloader.set_status_callback(status_callback)
         
+        def on_info_extracted(info):
+            video_id = info.get('id')
+            if not video_id:
+                return True
+                
+            # 檢查資料夾內是否已有同 ID 檔案
+            import glob
+            pattern = os.path.join(output_path, f"*[{video_id}]*.*")
+            matches = glob.glob(pattern)
+            # 過濾掉臨時檔
+            valid_matches = [m for m in matches if not m.endswith(('.part', '.ytdl', '.temp'))]
+            
+            if valid_matches:
+                # 發現重複，彈窗詢問
+                from tkinter import messagebox
+                result = {"choice": True}
+                event = threading.Event()
+                
+                def ask():
+                    msg = f"偵測到重複下載！\n\n資料夾中已存在 ID 為 [{video_id}] 的檔案：\n{os.path.basename(valid_matches[0])}\n\n您確定要重新下載（或續傳）嗎？"
+                    result["choice"] = messagebox.askyesno("重複下載提醒", msg)
+                    event.set()
+                
+                self.frame.after(0, ask)
+                event.wait() # 等待使用者點選
+                return result["choice"]
+            return True
+
         try:
             self.current_downloader = downloader
-            filename = downloader.download(url, output_path, options, self.cancellation_token, logger=gui_logger)
+            filename = downloader.download(url, output_path, options, self.cancellation_token, 
+                                        logger=gui_logger, on_info_extracted=on_info_extracted)
             
-            # 獲取下載後的資訊並加入歷史記錄
+            # 下載完成後邏輯
             task = downloader.get_current_task()
-            # 下載成功後彈窗詢問播放
-            if filename:
-                # 確保 filename 不是路徑，只是純檔名
-                filename = os.path.basename(filename)
-                full_path = os.path.join(output_path, filename)
+            
+            # 使用更可靠的狀態判斷
+            if task and task.status == DownloadStatus.COMPLETED:
+                # 取得檔名（優先使用 downloader 返回的，其次是 task 存的）
+                final_filename = filename or task.filename
                 
-                # 獲取下載後的資訊並加入歷史記錄
-                task = downloader.get_current_task()
-                self.history_store.add_record({
-                    'url': url,
-                    'title': task.title if task and task.title else filename,
-                    'platform': URLValidator.detect_platform(url) or "未知",
-                    'filename': filename,
-                    'filepath': full_path,
-                    'quality': options.get('quality', 'best'),
-                    'status': '成功'
-                })
+                if final_filename:
+                    final_filename = os.path.basename(final_filename)
+                    full_path = os.path.join(output_path, final_filename)
+                else:
+                    full_path = ""
 
-                # 尋找實際生成的檔案 (處理合併後的檔名變化)
+                # 更新歷史記錄
+                try:
+                    history = self.history_store.get_history()
+                    # 尋找最近一條符合網址且狀態為「正在下載」或「失敗」的紀錄進行更新
+                    updated = False
+                    for record in history:
+                        if record.get('url') == url and record.get('status') in ['正在下載', '失敗']:
+                            record.update({
+                                'title': task.title or final_filename or "未知影片",
+                                'filename': final_filename,
+                                'filepath': full_path,
+                                'quality': options.get('quality', 'best'),
+                                'status': '成功'
+                            })
+                            updated = True
+                            break
+                    
+                    if not updated:
+                        # 如果沒找到可更新的，則新增一條（保險起見）
+                        self.history_store.add_record({
+                            'url': url,
+                            'title': task.title or final_filename or "未知影片",
+                            'platform': URLValidator.detect_platform(url) or "未知",
+                            'filename': final_filename,
+                            'filepath': full_path,
+                            'quality': options.get('quality', 'best'),
+                            'status': '成功'
+                        })
+                    
+                    self.history_store._save()
+                except Exception:
+                    pass
+
+                # 尋找實際生成的檔案 (處理合併或修正後的檔名)
                 actual_file = None
-                if os.path.exists(full_path):
+                if full_path and os.path.exists(full_path):
                     actual_file = full_path
                 else:
-                    # 使用 video_id 進項最強效的搜尋 (排除 .f137 等中間字串)
-                    import glob
-                    video_id = task.video_id if task and task.video_id else ""
+                    # 使用 video_id 進項最強效的搜尋
+                    video_id = task.video_id if task else ""
                     if video_id:
-                        # 搜尋含有 [video_id] 的檔案，通常格式如: 標題 [ID].mp4
-                        # 有時可能包含合併資訊如: 標題 [ID].f137.mp4 -> 最終是 標題 [ID].mp4
+                        import glob
+                        # 搜尋包含 [ID] 的所有檔案
                         pattern = os.path.join(output_path, f"*[{video_id}]*.*")
                         matches = glob.glob(pattern)
-                        # 過濾掉臨時檔案
+                        # 過濾掉臨時檔案，並選擇最短的路徑（通常是最終成品）
+                        valid_matches = [m for m in matches if not m.endswith(('.part', '.ytdl', '.temp', '.merged'))]
+                        if valid_matches:
+                            actual_file = max(valid_matches, key=os.path.getmtime)
+                    
+                    # 備援：如果 ID 搜尋失敗，嘗試模糊標題搜尋
+                    if not actual_file and task.title:
+                        import re
+                        safe_title = re.escape(task.title[:10]) # 取標題前10字
+                        pattern = os.path.join(output_path, f"*{task.title[:10]}*.*")
+                        matches = glob.glob(pattern)
                         valid_matches = [m for m in matches if not m.endswith(('.part', '.ytdl', '.temp'))]
                         if valid_matches:
-                            # 優先尋找副檔名較短的（通常是合併後的最終檔案）
-                            actual_file = min(valid_matches, key=len)
-                    
-                    if not actual_file:
-                        # 備援方案：標題模糊搜尋
-                        import re
-                        base_pattern = re.sub(r'\.f\d+.*', '', full_path)
-                        base_name = os.path.splitext(base_pattern)[0]
-                        matches = glob.glob(f"{base_name}*.*")
-                        if matches:
-                            valid_matches = [m for m in matches if not m.endswith(('.part', '.ytdl', '.temp'))]
-                            if valid_matches:
-                                actual_file = valid_matches[0]
-                
+                            actual_file = valid_matches[0]
+
+                # 如果找到了實際檔案，彈窗詢問播放
                 if actual_file and os.path.exists(actual_file):
                     def ask_play():
                         if messagebox.askyesno("下載完成", f"影片下載成功！\n檔名：{os.path.basename(actual_file)}\n\n是否立即播放？"):
@@ -732,9 +807,15 @@ class DownloadTab:
                             except Exception as e:
                                 messagebox.showerror("錯誤", f"無法播放檔案：{e}")
                     
-                    self.frame.after(100, ask_play)
+                    self.frame.after(200, ask_play)
+                else:
+                    self.log_to_status(f"警告: 已完成但未能定位實體檔案 (ID: {task.video_id})")
+            
+            # 移除這裡的失敗紀錄，因為已移至 status_callback 中統一處理
+
         except Exception as e:
-            pass
+            logger.error(f"下載執行緒發生錯誤: {e}")
+            self.frame.after(0, lambda: self.log_to_status(f"ERROR: {e}"))
         finally:
             self.frame.after(0, lambda: self.set_downloading_state(False))
             self.current_downloader = None

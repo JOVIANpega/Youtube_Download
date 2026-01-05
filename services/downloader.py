@@ -49,6 +49,7 @@ class DownloadTask:
         self.downloaded_bytes = 0
         self.total_bytes = 0
         self.filename = ""
+        self.title = ""
         self.video_id = ""
         self.error_message = ""
         self.start_time = None
@@ -66,6 +67,7 @@ class DownloadTask:
             'downloaded_bytes': self.downloaded_bytes,
             'total_bytes': self.total_bytes,
             'filename': self.filename,
+            'title': self.title,
             'video_id': self.video_id,
             'error_message': self.error_message,
             'start_time': self.start_time,
@@ -202,7 +204,8 @@ class VideoDownloader:
     def download(self, url: str, output_path: str, options: Dict[str, Any] = None,
                 cancellation_token: CancellationToken = None,
                 progress_reporter: ProgressReporter = None,
-                logger: Any = None) -> str:
+                logger: Any = None,
+                on_info_extracted: Optional[Callable[[Dict[str, Any]], bool]] = None) -> str:
         """下載視頻"""
         
         if yt_dlp is None:
@@ -227,6 +230,13 @@ class VideoDownloader:
                 
             # 獲取視頻資訊
             video_info = self.get_video_info(url)
+            
+            # 回調 UI (例如檢查檔案是否已存在)
+            if on_info_extracted:
+                should_continue = on_info_extracted(video_info)
+                if not should_continue:
+                    raise OperationCancelledException("使用者選擇取消下載")
+                    
             title = video_info.get('title', 'video')
             
             # 處理檔名
@@ -241,22 +251,35 @@ class VideoDownloader:
             # 生成唯一檔名 (標題 + ID)
             video_id = video_info.get('id', 'video')
             self.current_task.video_id = video_id
-            base_filename = f"{clean_title} [{video_id}].%(ext)s"
+            self.current_task.title = clean_title
+            
+            # 使用 %(ext)s 作為模板
+            filename_template = f"{clean_title} [{video_id}].%(ext)s"
             
             # 設置 yt-dlp 選項
-            ydl_opts = self._build_ydl_options(output_path, base_filename, options, logger)
+            ydl_opts = self._build_ydl_options(output_path, filename_template, options, logger)
             ydl_opts['progress_hooks'] = [self._progress_hook]
             
-            # 檢查 FFmpeg
-            if options.get('auto_merge', True):
-                ffmpeg_path = self.ffmpeg_manager.get_ffmpeg_path()
-                if ffmpeg_path:
-                    ydl_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
-                    
-            # 開始下載
-            self._update_status(DownloadStatus.DOWNLOADING, "開始下載...")
-            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # 取得預計輸出檔名
+                try:
+                    full_filename = ydl.prepare_filename(video_info)
+                    self.current_task.filename = os.path.basename(full_filename)
+                except Exception as e:
+                    logger.warning(f"無法預先取得檔名: {e}")
+                
+                # 檢查 FFmpeg
+                if options.get('auto_merge', True):
+                    ffmpeg_path = self.ffmpeg_manager.get_ffmpeg_path()
+                    if ffmpeg_path:
+                        ydl_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
+                
+                # 更新選項（如果有的話）
+                ydl.params.update(ydl_opts)
+                
+                # 開始下載
+                self._update_status(DownloadStatus.DOWNLOADING, "開始下載...")
+                
                 # 定期檢查取消狀態
                 def check_cancellation():
                     if cancellation_token and cancellation_token.is_cancelled():

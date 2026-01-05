@@ -176,7 +176,24 @@ class MainApplication:
                 'settings_split_pos': getattr(self.settings_tab, 'get_split_pos', lambda: 320)(),
             }
             
-            # 如果有設定分頁，保存其設定（不再由設定分頁保存 filename_prefix）
+            # 從下載分頁取得額外設定
+            if hasattr(self, 'download_tab'):
+                # 獲取品質代碼
+                quality_text = self.download_tab.quality_var.get()
+                quality_value = "best"
+                from ui_download import QUALITY_OPTIONS # 確保能存取
+                for text, val in QUALITY_OPTIONS:
+                    if text == quality_text:
+                        quality_value = val
+                        break
+                
+                settings.update({
+                    'quality_preference': quality_value,
+                    'browser_preference': self.download_tab._get_browser_code(self.download_tab.browser_var.get()),
+                    'filename_prefix': self.download_tab.prefix_var.get(),
+                })
+
+            # 如果有設定分頁，保存其設定
             if hasattr(self, 'settings_tab'):
                 settings.update({
                     'auto_merge': self.settings_tab.auto_merge_var.get(),

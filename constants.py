@@ -131,14 +131,18 @@ LOG_FILE = 'logs/app.log'
 MAX_LOG_SIZE = 10 * 1024 * 1024  # 10MB
 LOG_BACKUP_COUNT = 5
 
-# 設定檔案路徑
-CONFIG_DIR = 'config'
-DATA_DIR = 'data'
-ASSETS_DIR = 'assets'
-LOGS_DIR = 'logs'
+# 常量路徑處理
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-SETTINGS_FILE = f'{CONFIG_DIR}/settings.json'
-HISTORY_FILE = f'{DATA_DIR}/history.json'
+# 設定檔案路徑
+CONFIG_DIR = os.path.join(BASE_DIR, 'config')
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+ASSETS_DIR = os.path.join(BASE_DIR, 'assets')
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+
+SETTINGS_FILE = os.path.join(CONFIG_DIR, 'settings.json')
+HISTORY_FILE = os.path.join(DATA_DIR, 'history.json')
 
 # 下載設定
 DEFAULT_DOWNLOAD_PATH = 'downloads'

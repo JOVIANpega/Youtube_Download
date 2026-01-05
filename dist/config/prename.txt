@@ -1,9 +1,0 @@
-# 檔名前綴清單，一行一個；使用者可自由編輯
-# 以 # 開頭為註解，空白行將被忽略
-per- 
-per best- 
-per best2- 
-per best3- 
-per nice- 
-test-
-

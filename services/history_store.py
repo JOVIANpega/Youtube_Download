@@ -9,14 +9,15 @@ import json
 import os
 from datetime import datetime
 from logging_config import get_logger
+from constants import HISTORY_FILE
 
 logger = get_logger(__name__)
 
 class HistoryStore:
     """歷史記錄管理類"""
     
-    def __init__(self, data_file='data/history.json'):
-        self.data_file = data_file
+    def __init__(self, data_file=None):
+        self.data_file = data_file or HISTORY_FILE
         self._ensure_data_dir()
         self.history = self._load()
         
