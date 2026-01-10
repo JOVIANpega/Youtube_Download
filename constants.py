@@ -133,7 +133,19 @@ LOG_BACKUP_COUNT = 5
 
 # 常量路徑處理
 import os
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+import sys
+
+if getattr(sys, 'frozen', False):
+    # 打包後的環境 (EXE 所在目錄)
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    # 開發環境 (程式進入點所在目錄)
+    # 使用當前執行路徑或 __main__ 所在目錄，避免被 nested libs 誤導
+    import __main__
+    if hasattr(__main__, '__file__'):
+        BASE_DIR = os.path.dirname(os.path.abspath(__main__.__file__))
+    else:
+        BASE_DIR = os.getcwd()
 
 # 設定檔案路徑
 CONFIG_DIR = os.path.join(BASE_DIR, 'config')

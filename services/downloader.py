@@ -99,7 +99,10 @@ class VideoDownloader:
             try:
                 self.progress_callback(progress, message)
             except Exception as e:
-                logger.error(f"進度回調錯誤: {e}")
+                # The provided snippet seems to be for a UI component, not this service.
+                # Applying the logging part that is relevant to this service.
+                err_msg = str(e)
+                logger.error(f"進度回調錯誤: {err_msg}")
                 
     def _update_status(self, status: DownloadStatus, message: str = ""):
         """更新狀態"""
@@ -120,6 +123,10 @@ class VideoDownloader:
             return
             
         try:
+            # 優先檢查是否已取消
+            if self.cancellation_token and self.cancellation_token.is_cancelled():
+                raise OperationCancelledException("操作已取消")
+
             if d['status'] == 'downloading':
                 self.current_task.status = DownloadStatus.DOWNLOADING
                 
@@ -135,6 +142,9 @@ class VideoDownloader:
                 if self.current_task.total_bytes > 0:
                     self.current_task.progress = (self.current_task.downloaded_bytes / 
                                                 self.current_task.total_bytes) * 100
+                else:
+                    # 如果總大小未知，設為 0 並在訊息中顯示已下載量
+                    self.current_task.progress = 0.0
                     
                 # 更新速度和 ETA
                 if 'speed' in d and d['speed']:
@@ -149,9 +159,15 @@ class VideoDownloader:
                 part_msg = "下載音訊" if ext in ['.m4a', '.mp3', '.aac', '.opus'] else "下載影片"
                 
                 # 回調進度
+                downloaded_str = get_file_size_str(self.current_task.downloaded_bytes)
                 speed_str = f"{get_file_size_str(self.current_task.speed)}/s" if self.current_task.speed else ""
                 eta_str = f"ETA: {self.current_task.eta}s" if self.current_task.eta else ""
-                message = f"[{part_msg}] {speed_str} {eta_str}".strip()
+                
+                if self.current_task.total_bytes > 0:
+                    message = f"[{part_msg}] {speed_str} {eta_str}".strip()
+                else:
+                    # 總大小未知時，在狀態欄顯示已下載多少
+                    message = f"[{part_msg}] 已下載 {downloaded_str} | {speed_str}".strip()
                 
                 self._update_progress(self.current_task.progress, message)
                 
@@ -169,19 +185,42 @@ class VideoDownloader:
         except Exception as e:
             logger.error(f"進度鉤子錯誤: {e}")
             
-    def get_video_info(self, url: str) -> Dict[str, Any]:
+    def get_video_info(self, url: str, cancellation_token: CancellationToken = None) -> Dict[str, Any]:
         """獲取視頻資訊"""
         if yt_dlp is None:
             raise Exception("yt-dlp 未安裝，無法獲取視頻資訊")
             
+        # 在開始前檢查取消
+        if cancellation_token and cancellation_token.is_cancelled():
+            raise OperationCancelledException("操作已取消")
+            
         try:
+            # 獲取資訊用的小選項
             ydl_opts = {
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
+                'socket_timeout': 15, # 進一步縮短，避免長久卡轉
+                'source_address': '0.0.0.0', # 強制使用 IPv4 增加連線速度
             }
             
+            # 獲取資訊時也套用代理 (SettingsManager 取得全域設定)
+            from services.settings import SettingsManager
+            sm = SettingsManager()
+            global_settings = sm.load_settings()
+            proxy = global_settings.get('proxy', '').strip()
+            if proxy:
+                ydl_opts['proxy'] = proxy
+            
+            # 如果有提供 Token，也順便檢查一下
+            if cancellation_token and cancellation_token.is_cancelled():
+                raise OperationCancelledException("操作已取消")
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # 在 extract_info 之前再次檢查
+                if cancellation_token and cancellation_token.is_cancelled():
+                    raise OperationCancelledException("操作已取消")
+                
                 info = ydl.extract_info(url, download=False)
                 
             return {
@@ -204,8 +243,7 @@ class VideoDownloader:
     def download(self, url: str, output_path: str, options: Dict[str, Any] = None,
                 cancellation_token: CancellationToken = None,
                 progress_reporter: ProgressReporter = None,
-                logger: Any = None,
-                on_info_extracted: Optional[Callable[[Dict[str, Any]], bool]] = None) -> str:
+                logger: Any = None) -> str:
         """下載視頻"""
         
         if yt_dlp is None:
@@ -228,15 +266,8 @@ class VideoDownloader:
             if cancellation_token and cancellation_token.is_cancelled():
                 raise OperationCancelledException("操作已取消")
                 
-            # 獲取視頻資訊
-            video_info = self.get_video_info(url)
-            
-            # 回調 UI (例如檢查檔案是否已存在)
-            if on_info_extracted:
-                should_continue = on_info_extracted(video_info)
-                if not should_continue:
-                    raise OperationCancelledException("使用者選擇取消下載")
-                    
+            # 獲取視頻資訊 (傳入取消令牌)
+            video_info = self.get_video_info(url, cancellation_token)
             title = video_info.get('title', 'video')
             
             # 處理檔名
@@ -253,12 +284,36 @@ class VideoDownloader:
             self.current_task.video_id = video_id
             self.current_task.title = clean_title
             
+            # 檢查檔案是否已存在，若存在則加上序號（如 -2）
+            base_name = f"{clean_title} [{video_id}]"
+            suffix = ""
+            counter = 1
+            import glob
+            while True:
+                candidate = f"{base_name}{suffix}.*"
+                # 搜尋資料夾中是否有任何檔案匹配該名稱（不限副檔名）
+                existing = glob.glob(os.path.join(output_path, candidate))
+                # 過濾掉暫存檔
+                valid_existing = [e for e in existing if not e.endswith(('.part', '.ytdl', '.temp'))]
+                if not valid_existing:
+                    break
+                counter += 1
+                suffix = f"-{counter}"
+            
             # 使用 %(ext)s 作為模板
-            filename_template = f"{clean_title} [{video_id}].%(ext)s"
+            filename_template = f"{base_name}{suffix}.%(ext)s"
             
             # 設置 yt-dlp 選項
             ydl_opts = self._build_ydl_options(output_path, filename_template, options, logger)
             ydl_opts['progress_hooks'] = [self._progress_hook]
+            
+            # 檢查 FFmpeg
+            if options.get('auto_merge', True):
+                ffmpeg_path = self.ffmpeg_manager.get_ffmpeg_path()
+                if ffmpeg_path:
+                    ydl_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
+                else:
+                    logger.warning("未找到 FFmpeg，合併功能可能失效")
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 # 取得預計輸出檔名
@@ -268,25 +323,14 @@ class VideoDownloader:
                 except Exception as e:
                     logger.warning(f"無法預先取得檔名: {e}")
                 
-                # 檢查 FFmpeg
-                if options.get('auto_merge', True):
-                    ffmpeg_path = self.ffmpeg_manager.get_ffmpeg_path()
-                    if ffmpeg_path:
-                        ydl_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
-                
-                # 更新選項（如果有的話）
-                ydl.params.update(ydl_opts)
-                
-                # 開始下載
-                self._update_status(DownloadStatus.DOWNLOADING, "開始下載...")
-                
-                # 定期檢查取消狀態
+                # 檢查進度回調
                 def check_cancellation():
                     if cancellation_token and cancellation_token.is_cancelled():
                         raise OperationCancelledException("操作已取消")
-                        
-                # 下載
-                ydl.download([url])
+                
+                # 直接處理已獲取的資訊，跳過重複擷取網頁的步驟
+                self._update_status(DownloadStatus.DOWNLOADING, "正在連結數據流...")
+                ydl.process_video_result(video_info, download=True)
                 
             # 檢查最終取消狀態
             if cancellation_token and cancellation_token.is_cancelled():
@@ -322,19 +366,49 @@ class VideoDownloader:
             'format': self._get_format_selector(options),
             'writesubtitles': options.get('download_subtitles', False),
             'writeautomaticsub': options.get('download_auto_subtitles', False),
-            'ignoreerrors': False,
-            'no_warnings': False,
             'logger': logger,
-            'noplaylist': True,  # 確保不下載整個播放列表
-            'cachedir': False,   # 停用快取目錄 (正確參數名稱)
+            'noplaylist': True,
+            'cachedir': False,
+            'no_mtime': True,
+            'noprogress': False,
+            
+            # 性能與穩定性平衡設定
+            'concurrent_fragment_downloads': 5, 
+            'nocheckcertificate': True,
+            'socket_timeout': 30,
+            'source_address': '0.0.0.0', # 強制 IPv4 避免連線逾時
+            'retries': 3,
+            'ignoreerrors': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web'], # 優先使用行動版客戶端，較少遇到網頁版 429
+                }
+            },
+            'buffersize': 1024 * 256,
         }
+        
+        # 網路避障設定 (代理/延遲)
+        proxy = options.get('proxy', '').strip()
+        if proxy:
+            ydl_opts['proxy'] = proxy
+            
+        if options.get('use_random_delay', False):
+            # 隨機延遲 5~15 秒，降低連線頻率
+            ydl_opts.update({
+                'sleep_interval': 5,
+                'max_sleep_interval': 15,
+                'sleep_interval_requests': 2,
+            })
+            
+        # 移除手動旋轉 UA 邏輯，讓 yt-dlp 依照 player_client 自動配對正確的 UA，避免特徵不符被抓
+        pass
         
         # 帳號授權 (Cookies from browser)
         browser = options.get('browser', 'none')
         if browser and browser != 'none':
             ydl_opts['cookiesfrombrowser'] = (browser,)
         
-        # 品質選項
+        # 品質與格式
         quality = options.get('quality', 'best')
         if quality == 'audio':
             ydl_opts.update({
@@ -350,13 +424,6 @@ class VideoDownloader:
             video_format = options.get('video_format', 'mp4')
             if video_format != 'best':
                 ydl_opts['merge_output_format'] = video_format
-                
-        # 重試選項
-        ydl_opts.update({
-            'retries': options.get('retry_attempts', 3),
-            'fragment_retries': options.get('retry_attempts', 3),
-            'socket_timeout': options.get('timeout', 300),
-        })
         
         return ydl_opts
         

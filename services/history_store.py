@@ -23,9 +23,12 @@ class HistoryStore:
         
     def _ensure_data_dir(self):
         """確保數據目錄存在"""
-        data_dir = os.path.dirname(self.data_file)
+        data_dir = os.path.dirname(os.path.abspath(self.data_file))
         if data_dir and not os.path.exists(data_dir):
-            os.makedirs(data_dir)
+            try:
+                os.makedirs(data_dir, exist_ok=True)
+            except Exception as e:
+                logger.error(f"無法建立數據目錄: {e}")
             
     def _load(self):
         """從 JSON 載入歷史記錄"""

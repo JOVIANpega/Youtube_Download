@@ -35,6 +35,8 @@ class SettingsTab:
         self.show_advanced_var = tk.BooleanVar()
         self.auto_open_folder_var = tk.BooleanVar()
         self.check_updates_var = tk.BooleanVar()
+        self.proxy_var = tk.StringVar()
+        self.use_random_delay_var = tk.BooleanVar()
         
         self.setup_ui()
         self.load_settings()
@@ -261,6 +263,33 @@ class SettingsTab:
 
         # FFmpeg 路徑變更即時保存
         self.ffmpeg_path_var.trace('w', lambda *_: self.save_all_settings_silent())
+
+        # 網路與避障設定 (代理/延遲)
+        network_frame = ttk.Frame(advanced_frame)
+        network_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(network_frame, text="代理伺服器 (Proxy):").pack(anchor=tk.W)
+        self.proxy_entry = ttk.Entry(
+            network_frame,
+            textvariable=self.proxy_var,
+            font=self.font_manager.get_font()
+        )
+        self.proxy_entry.pack(fill=tk.X, pady=(2, 5))
+        ttk.Label(network_frame, text="範例: http://127.0.0.1:7890", foreground="gray", font=self.font_manager.get_font()).pack(anchor=tk.W)
+
+        random_delay_cb = ttk.Checkbutton(
+            network_frame,
+            text="啟用隨機延遲 (防封鎖/人機模擬)",
+            variable=self.use_random_delay_var
+        )
+        random_delay_cb.pack(anchor=tk.W, pady=(5, 0))
+        
+        self.font_manager.register_widget(self.proxy_entry)
+        self.font_manager.register_widget(random_delay_cb)
+        
+        # 即時保存網路設定
+        self.proxy_var.trace('w', lambda *_: self.save_all_settings_silent())
+        self.use_random_delay_var.trace('w', lambda *_: self.save_all_settings_silent())
         
         # 系統維護按鈕
         maint_frame = ttk.Frame(advanced_frame)
@@ -344,6 +373,8 @@ class SettingsTab:
                 'auto_open_download_folder': self.auto_open_folder_var.get(),
                 'check_for_updates': self.check_updates_var.get(),
                 'ffmpeg_path': self.ffmpeg_path_var.get(),
+                'proxy': self.proxy_var.get(),
+                'use_random_delay': self.use_random_delay_var.get(),
             }
             self.settings_manager.update_settings(settings)
         except Exception:
@@ -370,6 +401,10 @@ class SettingsTab:
             
             # FFmpeg 路徑
             self.ffmpeg_path_var.set(settings.get('ffmpeg_path', ''))
+            
+            # 代理與延遲 (預設啟用隨機延遲以增加穩定性)
+            self.proxy_var.set(settings.get('proxy', ''))
+            self.use_random_delay_var.set(settings.get('use_random_delay', True))
 
             # 分割條位置
             try:
@@ -403,6 +438,8 @@ class SettingsTab:
                 'auto_open_download_folder': self.auto_open_folder_var.get(),
                 'check_for_updates': self.check_updates_var.get(),
                 'ffmpeg_path': self.ffmpeg_path_var.get(),
+                'proxy': self.proxy_var.get(),
+                'use_random_delay': self.use_random_delay_var.get(),
             }
             
             self.settings_manager.update_settings(settings)

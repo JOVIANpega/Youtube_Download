@@ -75,7 +75,7 @@ class MainApplication:
         top_frame.pack(fill=tk.X, pady=(0, 5))
         
         # 標題
-        title_label = ttk.Label(top_frame, text=APP_TITLE, font=('Arial', 14, 'bold'))
+        title_label = ttk.Label(top_frame, text=APP_TITLE, font=('Arial', 14, 'bold'), foreground='#003366')
         title_label.pack(side=tk.LEFT)
         
         # 字體控制按鈕
@@ -92,25 +92,42 @@ class MainApplication:
         # 樣式：TAB 標籤顏色與 hover 效果
         try:
             style = ttk.Style(self.root)
-            # Notebook 背景與分頁未選取顏色
-            style.configure('TNotebook', background='#e9edf3')
-            style.configure('TNotebook.Tab', padding=(12, 6), background='#f2f4f7', foreground='#000000')
-            # 分頁顏色對比：選取深藍底、黑字；未選取黑色字；hover 淺藍底
+            # 強制切換到 clam 主題以確保顏色生效
+            if 'clam' in style.theme_names():
+                style.theme_use('clam')
+                
+            # Notebook 背景
+            style.configure('TNotebook', background='#f0f2f5', borderwidth=0)
+            
+            # 定義分頁按鈕樣式
+            # 選中前的顏色：中灰色底
+            style.configure('TNotebook.Tab', 
+                            padding=(20, 10), 
+                            font=self.font_manager.get_font('bold'),
+                            background='#d1d8e0', 
+                            foreground='#404040',
+                            borderwidth=1)
+            
+            # 狀態對應顏色：選中為深藍色 (#003366)、文字為白色
             style.map('TNotebook.Tab',
-                      background=[('selected', '#2b6cb0'), ('active', '#e6f0ff'), ('!selected', '#f2f4f7')],
-                      foreground=[('selected', '#000000'), ('!selected', '#000000'), ('active', '#000000')])
-        except Exception:
-            pass
+                      background=[('selected', '#003366'), ('active', '#004c99')],
+                      foreground=[('selected', '#ffffff'), ('active', '#ffffff')],
+                      lightcolor=[('selected', '#003366')],
+                      bordercolor=[('selected', '#002244')])
+        except Exception as e:
+            print(f"樣式設定失敗: {e}")
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
         # 創建各個分頁
         self.download_tab = DownloadTab(self.notebook, self.font_manager, self.settings_manager, self.history_store)
+        self.download_tab_2 = DownloadTab(self.notebook, self.font_manager, self.settings_manager, self.history_store)
         self.external_tab = ExternalTab(self.notebook, self.font_manager)
         self.history_tab = HistoryTab(self.notebook, self.font_manager, self.history_store)
         self.settings_tab = SettingsTab(self.notebook, self.font_manager, self.settings_manager)
         
         # 添加分頁到筆記本
-        self.notebook.add(self.download_tab.frame, text="下載")
+        self.notebook.add(self.download_tab.frame, text="下載 1")
+        self.notebook.add(self.download_tab_2.frame, text="下載 2")
         self.notebook.add(self.external_tab.frame, text="外部下載器")
         self.notebook.add(self.history_tab.frame, text="歷史記錄")
         self.notebook.add(self.settings_tab.frame, text="設定")
@@ -131,10 +148,11 @@ class MainApplication:
             self.history_tab.refresh_data()
         elif tab_text == "設定":
             self.settings_tab.load_settings()
-        elif tab_text == "下載":
+        elif tab_text in ["下載 1", "下載 2"]:
             # 下載分頁若有需要刷新 (如前綴清單等)
-            if hasattr(self.download_tab, 'reload_prefix_list'):
-                self.download_tab.reload_prefix_list()
+            target = self.download_tab if tab_text == "下載 1" else self.download_tab_2
+            if hasattr(target, 'reload_prefix_list'):
+                target.reload_prefix_list()
 
     def setup_exception_handler(self):
         """設置全域例外處理"""
@@ -218,6 +236,7 @@ class MainApplication:
         try:
             self.save_settings()
             self.download_tab.cleanup()
+            self.download_tab_2.cleanup()
             self.logger.info("應用程式正常關閉")
         except Exception as e:
             self.logger.error(f"關閉時發生錯誤: {e}")
@@ -235,8 +254,16 @@ def main():
         app = MainApplication()
         app.run()
     except Exception as e:
-        print(f"啟動應用程式失敗: {e}")
-        traceback.print_exc()
+        import tkinter as tk
+        from tkinter import messagebox
+        import traceback
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("啟動錯誤", f"應用程式無法啟動：\n{e}\n\n{traceback.format_exc()}")
+            root.destroy()
+        except:
+            print(f"啟動報錯: {e}")
 
 if __name__ == "__main__":
     main()

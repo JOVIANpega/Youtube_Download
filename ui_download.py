@@ -137,6 +137,8 @@ class DownloadTab:
         
         paste_btn = ttk.Button(btn_row, text="貼上", command=self.paste_url, width=6)
         paste_btn.pack(side=tk.LEFT, padx=(0, 2))
+        copy_btn = ttk.Button(btn_row, text="複製", command=self.copy_url, width=6)
+        copy_btn.pack(side=tk.LEFT, padx=(0, 2))
         clear_btn = ttk.Button(btn_row, text="清空", command=self.clear_url, width=6)
         clear_btn.pack(side=tk.LEFT, padx=(0, 5))
         
@@ -154,7 +156,7 @@ class DownloadTab:
         
         # 註冊字體
         self.font_manager.register_widget(self.url_entry)
-        for btn in [paste_btn, clear_btn, open_btn, self.quick_link_combo, edit_btn]:
+        for btn in [paste_btn, copy_btn, clear_btn, open_btn, self.quick_link_combo, edit_btn]:
             self.font_manager.register_widget(btn)
 
     def create_path_section(self, parent):
@@ -248,7 +250,7 @@ class DownloadTab:
         self.info_label = ttk.Label(self.progress_display_container, 
                                    text="準備就緒...", 
                                    font=self.font_manager.get_font(),
-                                   foreground="blue")
+                                   foreground="#003366")
         self.info_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # 詳細日誌核取方塊
@@ -261,14 +263,14 @@ class DownloadTab:
                                   command=self.clear_log, width=5)
         clear_log_btn.pack(side=tk.RIGHT, padx=(5, 5))
         
-        # 保存日誌按鈕
-        save_log_btn = ttk.Button(self.progress_display_container, text="保存", 
-                                 command=self.save_log, width=5)
-        save_log_btn.pack(side=tk.RIGHT)
+        # 複製檔名按鈕
+        self.copy_name_btn = ttk.Button(self.progress_display_container, text="複製名稱", 
+                                  command=self.copy_current_filename, width=8)
+        self.copy_name_btn.pack(side=tk.RIGHT)
 
         self.font_manager.register_widget(full_log_cb)
         self.font_manager.register_widget(clear_log_btn)
-        self.font_manager.register_widget(save_log_btn)
+        self.font_manager.register_widget(self.copy_name_btn)
         
         # 狀態顯示區域（滾動日誌）
         status_frame = ttk.Frame(self.progress_frame)
@@ -282,6 +284,12 @@ class DownloadTab:
                                                    font=self.font_manager.get_font('monospace'),
                                                    state=tk.DISABLED)
         self.status_text.pack(fill=tk.BOTH, expand=True)
+        
+        # 設置強調標籤
+        self.status_text.tag_configure("highlight", background="yellow", foreground="black")
+        self.status_text.tag_configure("title", background="#ADD8E6", foreground="#000080")
+        self.status_text.tag_configure("error", foreground="red")
+        self.status_text.tag_configure("success", foreground="green")
         
         # 初始化顯示
         # self.log_to_status(STATUS_MESSAGES['ready'])
@@ -496,6 +504,17 @@ class DownloadTab:
         self.url_placeholder.clear()
         self.show_message("", "")
         
+    def copy_url(self):
+        """複製 URL 到剪貼簿"""
+        url = self.url_placeholder.get_value()
+        if url:
+            try:
+                self.frame.clipboard_clear()
+                self.frame.clipboard_append(url)
+                self.show_message("網址已複製到剪貼簿", "success")
+            except Exception as e:
+                self.show_message(f"複製失敗: {e}", "error")
+        
     def open_in_browser(self):
         """在瀏覽器中開啟 URL"""
         url = self.url_placeholder.get_value()
@@ -558,6 +577,8 @@ class DownloadTab:
         browser_display = self.browser_var.get()
         browser_code = self._get_browser_code(browser_display)
                 
+        settings = self.settings_manager.load_settings()
+        
         return {
             'quality': quality_value,
             'filename_prefix': self.prefix_var.get(),
@@ -567,9 +588,11 @@ class DownloadTab:
             'keep_video': self.keep_video_var.get(),
             'keep_audio': self.keep_audio_var.get(),
             'auto_merge': self.auto_merge_var.get(),
+            'proxy': settings.get('proxy', ''),
+            'use_random_delay': settings.get('use_random_delay', False),
         }
 
-    def log_to_status(self, message):
+    def log_to_status(self, message, tag=None):
         """寫入狀態日誌區域"""
         try:
             # 1. 徹底清理 ANSI 顏色代碼 (包含各種控制序列)
@@ -590,7 +613,14 @@ class DownloadTab:
             if float(self.status_text.index('end-1c')) > 1000:
                  self.status_text.delete(1.0, 2.0)
             
+            start_index = self.status_text.index(tk.END)
             self.status_text.insert(tk.END, message + '\n')
+            
+            if tag:
+                # 取得剛插入的那一行的位置（排除最後的換行符）
+                row = int(float(start_index))
+                self.status_text.tag_add(tag, f"{row}.0", f"{row}.end")
+
             self.status_text.see(tk.END)
             self.status_text.config(state=tk.DISABLED)
         except Exception:
@@ -628,6 +658,7 @@ class DownloadTab:
         self.status_text.delete(1.0, tk.END)
         self.status_text.config(state=tk.DISABLED)
         self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 開始下載: {url}")
+        self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 正在與伺服器建立連線，獲取影片格式與資訊...")
         
         options = self.create_download_options()
         
@@ -657,67 +688,54 @@ class DownloadTab:
             self.frame.after(0, lambda: self.update_dashboard_info(filename, progress, message))
             
         def status_callback(status, message):
-            if status == DownloadStatus.COMPLETED:
+            # 任何狀態變化都更新進度板
+            task = downloader.get_current_task()
+            filename = task.title if task and task.title else "正在處理..."
+            
+            if status == DownloadStatus.EXTRACTING:
+                self.frame.after(0, lambda: self.progress_bar.start(10)) # 啟動跑馬燈
+                self.frame.after(0, lambda: self.update_dashboard_info(filename, 0, "正在獲取視頻資訊..."))
+                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 解析中: {filename}"))
+            elif status == DownloadStatus.DOWNLOADING:
+                self.frame.after(0, lambda: self.progress_bar.stop()) # 停止跑馬燈
+                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 擷取到檔名: {filename}", tag="title"))
+                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 下載中: {filename}"))
+            elif status == DownloadStatus.MERGING:
+                self.frame.after(0, lambda: self.progress_bar.start(10)) 
+                self.frame.after(0, lambda: self.update_dashboard_info(filename, 99, "正在合併檔案..."))
+                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 合併中: 正將影音軌跡進行合併..."))
+            elif status == DownloadStatus.COMPLETED:
+                self.frame.after(0, lambda: self.progress_bar.stop())
                 self.frame.after(0, lambda: self.show_message(SUCCESS_MESSAGES['download_complete'], "success"))
                 self.frame.after(0, lambda: self.update_dashboard_info("下載完成", 100, "所有任務已完成"))
-                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 下載完成"))
+                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 下載完成", tag="success"))
             elif status == DownloadStatus.FAILED:
+                self.frame.after(0, lambda: self.progress_bar.stop())
                 self.frame.after(0, lambda: self.show_message(f"下載失敗: {message}", "error"))
-                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] ERROR: {message}"))
+                self.frame.after(0, lambda m=message: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] ERROR: {m}", tag="error"))
                 self.frame.after(0, lambda: self.update_dashboard_info("下載失敗", 0, message))
-                
-                # 更新最後一條紀錄為失敗
+                # ... (歷史記錄更新邏輯保持不變)
                 try:
                     history = self.history_store.get_history()
                     for record in history:
                         if record.get('url') == url and record.get('status') == '正在下載':
-                            record.update({
-                                'status': '失敗',
-                                'error': message
-                            })
+                            record.update({'status': '失敗', 'error': message})
                             break
                     self.history_store._save()
-                except Exception:
-                    pass
+                except Exception: pass
             elif status == DownloadStatus.CANCELLED:
+                self.frame.after(0, lambda: self.progress_bar.stop())
                 self.frame.after(0, lambda: self.show_message("下載已取消", "warning"))
-                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 下載已取消"))
+                self.frame.after(0, lambda: self.log_to_status(f"[{datetime.now().strftime('%H:%M:%S')}] 下載已取消", tag="error"))
+                self.frame.after(0, lambda: self.update_dashboard_info("已取消", 0, "操作已中止"))
                 
         downloader.set_progress_callback(progress_callback)
         downloader.set_status_callback(status_callback)
         
-        def on_info_extracted(info):
-            video_id = info.get('id')
-            if not video_id:
-                return True
-                
-            # 檢查資料夾內是否已有同 ID 檔案
-            import glob
-            pattern = os.path.join(output_path, f"*[{video_id}]*.*")
-            matches = glob.glob(pattern)
-            # 過濾掉臨時檔
-            valid_matches = [m for m in matches if not m.endswith(('.part', '.ytdl', '.temp'))]
-            
-            if valid_matches:
-                # 發現重複，彈窗詢問
-                from tkinter import messagebox
-                result = {"choice": True}
-                event = threading.Event()
-                
-                def ask():
-                    msg = f"偵測到重複下載！\n\n資料夾中已存在 ID 為 [{video_id}] 的檔案：\n{os.path.basename(valid_matches[0])}\n\n您確定要重新下載（或續傳）嗎？"
-                    result["choice"] = messagebox.askyesno("重複下載提醒", msg)
-                    event.set()
-                
-                self.frame.after(0, ask)
-                event.wait() # 等待使用者點選
-                return result["choice"]
-            return True
-
         try:
             self.current_downloader = downloader
             filename = downloader.download(url, output_path, options, self.cancellation_token, 
-                                        logger=gui_logger, on_info_extracted=on_info_extracted)
+                                        logger=gui_logger)
             
             # 下載完成後邏輯
             task = downloader.get_current_task()
@@ -729,6 +747,9 @@ class DownloadTab:
                 
                 if final_filename:
                     final_filename = os.path.basename(final_filename)
+                    # 強制移除可能殘留的 .part 顯示字樣
+                    if final_filename.endswith('.part'):
+                        final_filename = final_filename[:-5]
                     full_path = os.path.join(output_path, final_filename)
                 else:
                     full_path = ""
@@ -814,8 +835,9 @@ class DownloadTab:
             # 移除這裡的失敗紀錄，因為已移至 status_callback 中統一處理
 
         except Exception as e:
-            logger.error(f"下載執行緒發生錯誤: {e}")
-            self.frame.after(0, lambda: self.log_to_status(f"ERROR: {e}"))
+            err_msg = str(e)
+            logger.error(f"下載執行緒發生錯誤: {err_msg}")
+            self.frame.after(0, lambda m=err_msg: self.log_to_status(f"ERROR: {m}", tag="error"))
         finally:
             self.frame.after(0, lambda: self.set_downloading_state(False))
             self.current_downloader = None
@@ -825,7 +847,7 @@ class DownloadTab:
         from services.ffmpeg_manager import FFmpegManager
         manager = FFmpegManager()
         
-        self.log_to_status("正在自動下載 FFmpeg，請稍候...")
+        self.log_to_status("正在自動下載 FFmpeg，請稍候...", tag="highlight")
         self.set_downloading_state(True)
         self.download_btn.config(text="正在安裝...")
         
@@ -841,7 +863,8 @@ class DownloadTab:
                 else:
                     self.frame.after(0, lambda: messagebox.showerror("錯誤", "FFmpeg 下載失敗，請手動到設定頁面嘗試。"))
             except Exception as e:
-                self.frame.after(0, lambda: self.log_to_status(f"安裝失敗: {e}"))
+                err_msg = str(e)
+                self.frame.after(0, lambda m=err_msg: self.log_to_status(f"安裝失敗: {m}"))
             finally:
                 self.frame.after(0, lambda: self.set_downloading_state(False))
                 self.frame.after(0, lambda: self.download_btn.config(text=UI_TEXT['download_button']))
@@ -902,12 +925,28 @@ class DownloadTab:
     def cancel_download(self):
         """取消下載"""
         try:
+            if self.cancel_requested:
+                return
+                
             self.cancel_requested = True
-            self.log_to_status("正在取消下載...")
+            self.log_to_status("正在發送取消訊號...")
+            self.show_message("正在取消，請稍候...", "warning")
+            
+            # 立即禁用取消按鈕，防止重複點擊
+            self.cancel_btn.config(state=tk.DISABLED)
+            
             if self.cancellation_token:
                 self.cancellation_token.cancel()
-        except Exception:
-            pass
+                
+            # 如果還在解析階段，downloader 可能不會立即報錯，我們手動設置狀態
+            def force_reset():
+                if self.is_downloading:
+                    self.set_downloading_state(False)
+                    self.log_to_status("下載已取消 (UI 界面已重置)")
+            
+            self.frame.after(1500, force_reset)
+        except Exception as e:
+            self.log_to_status(f"取消時發生錯誤: {e}")
 
     def set_downloading_state(self, downloading):
         """設置下載狀態"""
@@ -951,6 +990,49 @@ class DownloadTab:
         self.status_text.delete(1.0, tk.END)
         self.status_text.config(state=tk.DISABLED)
             
+    def copy_current_filename(self):
+        """複製當前擷取到的名稱到剪貼簿"""
+        try:
+             import pyperclip
+             # 如果有當前任務，優先從任務拿檔名
+             filename = ""
+             if self.current_downloader and self.current_downloader.current_task:
+                 filename = self.current_downloader.current_task.filename or self.current_downloader.current_task.title
+             
+             # 如果都沒有，從 info_label 的文字抓
+             if not filename:
+                 info_text = self.info_label.cget("text")
+                 if "檔案: " in info_text:
+                     filename = info_text.split("檔案: ")[1].split(" | ")[0]
+             
+             if filename:
+                 # 移除可能存在的副檔名或 ID
+                 if " [" in filename:
+                     filename = filename.split(" [")[0]
+                 elif "." in filename:
+                     filename = os.path.splitext(filename)[0]
+                 
+                 pyperclip.copy(filename)
+                 self.show_message(f"已複製: {filename}", "info")
+             else:
+                 self.show_message("目前沒有可供複製的檔名", "warning")
+        except ImportError:
+             # 如果沒裝 pyperclip，嘗試用 tkinter 內建方式
+             try:
+                 filename = ""
+                 if self.current_downloader and self.current_downloader.current_task:
+                     filename = self.current_downloader.current_task.filename or self.current_downloader.current_task.title
+                 if filename:
+                     self.frame.clipboard_clear()
+                     self.frame.clipboard_append(filename)
+                     self.show_message("名稱已複製到剪貼簿", "info")
+                 else:
+                     self.show_message("目前沒有可供複製的檔名", "warning")
+             except Exception:
+                 self.show_message("無法存取剪貼簿", "error")
+        except Exception as e:
+            self.show_message(f"複製失敗: {e}", "error")
+
     def save_log(self):
         """保存日誌"""
         content = self.status_text.get(1.0, tk.END)
