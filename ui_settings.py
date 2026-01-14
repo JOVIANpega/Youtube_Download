@@ -1,17 +1,16 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 設定頁面UI
 檔名前綴、下載路徑、字體大小、其他偏好設定
 """
 
-import hashlib
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import platform
 import subprocess
-from constants import UI_TEXT, FILENAME_PREFIXES
+from constants import UI_TEXT, FILENAME_PREFIXES, THEMES, DEFAULT_THEME, COLORS, APP_VERSION
 from utils.ui_fonts import FontManager
 
 
@@ -27,14 +26,14 @@ class SettingsTab:
         # UI 變數
         self.font_size_var = tk.IntVar()
         self.download_path_var = tk.StringVar()
-        self.filename_prefix_var = tk.StringVar()
-        self.custom_prefix_var = tk.StringVar()
         self.auto_merge_var = tk.BooleanVar()
         self.keep_video_var = tk.BooleanVar()
         self.keep_audio_var = tk.BooleanVar()
         self.show_advanced_var = tk.BooleanVar()
         self.auto_open_folder_var = tk.BooleanVar()
         self.check_updates_var = tk.BooleanVar()
+        self.theme_var = tk.StringVar(value=DEFAULT_THEME)
+        self.version_var = tk.StringVar(value=APP_VERSION)
         self.proxy_var = tk.StringVar()
         self.use_random_delay_var = tk.BooleanVar()
         
@@ -43,7 +42,7 @@ class SettingsTab:
         
     def setup_ui(self):
         """設置用戶介面"""
-        # 主容器：左右可調整的分割面板（改用 tk.PanedWindow 提供較明顯的分隔拖曳區）
+        # 主容器：左右可調整的分割面板
         paned = tk.PanedWindow(
             self.frame,
             orient=tk.HORIZONTAL,
@@ -148,25 +147,27 @@ class SettingsTab:
         font_size_frame = ttk.Frame(font_frame)
         font_size_frame.pack(fill=tk.X, pady=(5, 0))
         
-        font_size_scale = tk.Scale(
+        self.font_size_scale = tk.Scale(
             font_size_frame,
             from_=8,
             to=20,
             orient=tk.HORIZONTAL,
             variable=self.font_size_var,
-            command=self.on_font_size_changed
+            command=self.on_font_size_changed,
+            showvalue=False
         )
-        font_size_scale.pack(fill=tk.X)
+        self.font_size_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        font_size_label = ttk.Label(
+        self.font_size_label = ttk.Label(
             font_size_frame,
             textvariable=self.font_size_var,
-            font=self.font_manager.get_font()
+            font=self.font_manager.get_font('bold'),
+            foreground=COLORS['primary']
         )
-        font_size_label.pack(anchor=tk.W, pady=(5, 0))
+        self.font_size_label.pack(side=tk.RIGHT, padx=(10, 0))
         
-        self.font_manager.register_widget(font_size_scale)
-        self.font_manager.register_widget(font_size_label)
+        self.font_manager.register_widget(self.font_size_scale)
+        self.font_manager.register_widget(self.font_size_label)
         
         # UI 偏好選項
         ui_pref_frame = ttk.Frame(ui_frame)
@@ -188,7 +189,7 @@ class SettingsTab:
         
         # 檢查更新列
         update_row = ttk.Frame(ui_pref_frame)
-        update_row.pack(fill=tk.X, pady=(5, 0))
+        update_row.pack(fill=tk.X, pady=(5, 5))
         
         check_updates_cb = ttk.Checkbutton(
             update_row,
@@ -205,12 +206,40 @@ class SettingsTab:
         )
         check_now_btn.pack(side=tk.LEFT, padx=(10, 0))
         
+        # 介面主題
+        theme_row = ttk.Frame(ui_pref_frame)
+        theme_row.pack(fill=tk.X, pady=(5, 5))
+        
+        ttk.Label(theme_row, text="介面主題：", width=10).pack(side=tk.LEFT)
+        self.theme_combo = ttk.Combobox(
+            theme_row, 
+            textvariable=self.theme_var,
+            values=list(THEMES.keys()),
+            state="readonly",
+            width=15
+        )
+        self.theme_combo.pack(side=tk.LEFT)
+        self.theme_combo.bind("<<ComboboxSelected>>", self.on_theme_selection_changed)
+        
+        # 版本顯示與編輯
+        version_row = ttk.Frame(ui_pref_frame)
+        version_row.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(version_row, text="版本號碼：", width=10).pack(side=tk.LEFT)
+        self.version_entry = ttk.Entry(
+            version_row,
+            textvariable=self.version_var,
+            width=10
+        )
+        self.version_entry.pack(side=tk.LEFT)
+        
         self.font_manager.register_widget(show_advanced_cb)
         self.font_manager.register_widget(auto_open_cb)
         self.font_manager.register_widget(check_updates_cb)
         self.font_manager.register_widget(check_now_btn)
+        self.font_manager.register_widget(self.version_entry)
+        self.font_manager.register_widget(self.theme_combo)
 
-        # 自動保存 UI 偏好變更
+        # 自動保存 UI 偏好變更 (排除主題即時持久化)
         def _auto_save(*_):
             try:
                 self.save_all_settings_silent()
@@ -249,7 +278,6 @@ class SettingsTab:
         )
         browse_ffmpeg_btn.pack(side=tk.LEFT, padx=(5, 0))
         
-        # 新增自動下載按鈕
         self.download_ffmpeg_btn = ttk.Button(
             ffmpeg_input_frame,
             text="自動下載",
@@ -264,7 +292,7 @@ class SettingsTab:
         # FFmpeg 路徑變更即時保存
         self.ffmpeg_path_var.trace('w', lambda *_: self.save_all_settings_silent())
 
-        # 網路與避障設定 (代理/延遲)
+        # 網路與避障設定
         network_frame = ttk.Frame(advanced_frame)
         network_frame.pack(fill=tk.X, pady=(10, 0))
         
@@ -307,10 +335,7 @@ class SettingsTab:
         advanced_help_frame = ttk.Frame(advanced_frame)
         advanced_help_frame.pack(fill=tk.X, pady=(10, 0))
         
-        help_text = """進階設定說明：
-• FFmpeg 路徑：留空表示使用系統 PATH 中的 ffmpeg
-• 自定義路徑：指定 ffmpeg 程式的完整路徑
-        """
+        help_text = "• FFmpeg 路徑：留空表示使用系統 PATH 中的 ffmpeg\n• 自定義路徑：指定 ffmpeg 程式的完整路徑"
         help_label = ttk.Label(
             advanced_help_frame,
             text=help_text,
@@ -341,27 +366,18 @@ class SettingsTab:
         save_btn.pack(side=tk.RIGHT, padx=(0, 10))
         self.font_manager.register_widget(save_btn)
 
-        # 在設定分頁提供「進階選項」切換按鈕，呼叫下載分頁的切換方法
-        try:
-            from ui_download import DownloadTab  # 僅用於型別提示
-            adv_btn = ttk.Button(
-                reset_frame,
-                text="切換進階選項",
-                command=lambda: getattr(self.parent.master, 'download_tab', None) and self.parent.master.download_tab.toggle_advanced()
-            )
-            adv_btn.pack(side=tk.LEFT)
-            self.font_manager.register_widget(adv_btn)
-        except Exception:
-            pass
-
-        # 分割條位置在視窗關閉時由 main.py 保存，這裡也提供立即保存入口
-        try:
-            self._paned.bind('<ButtonRelease-1>', lambda e: self.settings_manager.set_setting('settings_split_pos', self.get_split_pos()))
-        except Exception:
-            pass
+        # 底部說明文字
+        help_label = ttk.Label(
+            reset_frame,
+            text="* 設定將於點擊「保存設定」後永久生效",
+            foreground="gray",
+            font=self.font_manager.get_font('small')
+        )
+        help_label.pack(side=tk.LEFT)
+        self.font_manager.register_widget(help_label)
 
     def save_all_settings_silent(self):
-        """保存所有設置（不顯示提示框）"""
+        """保存所有設置（不顯示提示框，不含主題）"""
         try:
             settings = {
                 'font_size': self.font_size_var.get(),
@@ -378,7 +394,6 @@ class SettingsTab:
             }
             self.settings_manager.update_settings(settings)
         except Exception:
-            # 靜默失敗以避免啟動時彈窗
             pass
         
     def load_settings(self):
@@ -386,27 +401,19 @@ class SettingsTab:
         try:
             settings = self.settings_manager.load_settings()
             
-            # 載入各項設定
             self.font_size_var.set(settings.get('font_size', 12))
             self.download_path_var.set(settings.get('download_path', ''))
-            # 已不在設定頁設定前綴
-            
             self.auto_merge_var.set(settings.get('auto_merge', True))
             self.keep_video_var.set(settings.get('keep_video', True))
             self.keep_audio_var.set(settings.get('keep_audio', False))
-            
             self.show_advanced_var.set(settings.get('show_advanced_options', False))
             self.auto_open_folder_var.set(settings.get('auto_open_download_folder', False))
             self.check_updates_var.set(settings.get('check_for_updates', True))
-            
-            # FFmpeg 路徑
+            self.theme_var.set(settings.get('theme', DEFAULT_THEME))
             self.ffmpeg_path_var.set(settings.get('ffmpeg_path', ''))
-            
-            # 代理與延遲 (預設啟用隨機延遲以增加穩定性)
             self.proxy_var.set(settings.get('proxy', ''))
             self.use_random_delay_var.set(settings.get('use_random_delay', True))
 
-            # 分割條位置
             try:
                 split_pos = int(settings.get('settings_split_pos', 320))
                 def _apply_pos():
@@ -414,10 +421,7 @@ class SettingsTab:
                         self._paned.sashpos(0, split_pos)
                     except Exception:
                         pass
-                # 多次嘗試以確保在各平台布局完成後套用
-                self.frame.after(0, _apply_pos)
                 self.frame.after(100, _apply_pos)
-                self.frame.after(300, _apply_pos)
             except Exception:
                 pass
             
@@ -425,47 +429,41 @@ class SettingsTab:
             messagebox.showerror("錯誤", f"載入設定失敗：{e}")
             
     def save_all_settings(self):
-        """保存所有設置"""
+        """保存所有設置（含主題）"""
         try:
             settings = {
                 'font_size': self.font_size_var.get(),
                 'download_path': self.download_path_var.get(),
-                # 'filename_prefix' 已移除由設定頁維護
                 'auto_merge': self.auto_merge_var.get(),
                 'keep_video': self.keep_video_var.get(),
                 'keep_audio': self.keep_audio_var.get(),
                 'show_advanced_options': self.show_advanced_var.get(),
                 'auto_open_download_folder': self.auto_open_folder_var.get(),
                 'check_for_updates': self.check_updates_var.get(),
+                'theme': self.theme_var.get(),
                 'ffmpeg_path': self.ffmpeg_path_var.get(),
                 'proxy': self.proxy_var.get(),
                 'use_random_delay': self.use_random_delay_var.get(),
             }
             
             self.settings_manager.update_settings(settings)
-            messagebox.showinfo("成功", "設定已保存")
+            
+            # 同步更新 version_info.py 與 constants.py
+            self.sync_version_to_files(self.version_var.get())
+            
+            messagebox.showinfo("成功", "所有設定已永久保存")
             
         except Exception as e:
             messagebox.showerror("錯誤", f"保存設定失敗：{e}")
             
     def reset_all_settings(self):
         """重置所有設定"""
-        result = messagebox.askyesno(
-            "確認重置",
-            "確定要重置所有設定嗎？這個動作無法復原。"
-        )
-        
-        if result:
+        if messagebox.askyesno("確認重置", "確定要重置所有設定嗎？此動作無法復原。"):
             try:
                 self.settings_manager.reset_settings()
                 self.load_settings()
-                
-                # 更新字體大小
-                new_size = self.font_size_var.get()
-                self.font_manager.set_font_size(new_size)
-                
+                self.font_manager.set_font_size(self.font_size_var.get())
                 messagebox.showinfo("成功", "所有設定已重置為預設值")
-                
             except Exception as e:
                 messagebox.showerror("錯誤", f"重置設定失敗：{e}")
                 
@@ -474,8 +472,8 @@ class SettingsTab:
         try:
             new_size = int(self.font_size_var.get())
             self.font_manager.set_font_size(new_size)
-        except Exception as e:
-            print(f"字體大小更新錯誤: {e}")
+        except Exception:
+            pass
             
     def browse_download_path(self):
         """瀏覽下載路徑"""
@@ -483,25 +481,17 @@ class SettingsTab:
             title="選擇下載路徑",
             initialdir=self.download_path_var.get()
         )
-        
         if path:
             self.download_path_var.set(path)
             
     def browse_ffmpeg_path(self):
         """瀏覽FFmpeg路徑"""
-        
-        # Windows 的可執行檔案類型
-        filetypes = [
-            ("執行檔", "*.exe"),
-            ("所有檔案", "*.*")
-        ]
-        
+        filetypes = [("執行檔", "*.exe"), ("所有檔案", "*.*")]
         path = filedialog.askopenfilename(
             title="選擇 FFmpeg 程式",
             filetypes=filetypes,
             initialdir=self.ffmpeg_path_var.get()
         )
-        
         if path:
             self.ffmpeg_path_var.set(path)
             
@@ -509,62 +499,107 @@ class SettingsTab:
         """點擊自動下載 FFmpeg"""
         from services.ffmpeg_manager import FFmpegManager
         manager = FFmpegManager()
-        
         if manager.is_available():
             if not messagebox.askyesno("提示", "系統已偵測到 FFmpeg，確定要重新下載嗎？"):
                 return
-                
         self.download_ffmpeg_btn.config(state=tk.DISABLED, text="下載中...")
-        
         def do_download():
             try:
                 def progress(p, msg):
                     self.frame.after(0, lambda: self.download_ffmpeg_btn.config(text=f"{int(p)}%"))
-                
-                success = manager.download_ffmpeg_windows(progress_callback=progress)
-                
-                if success:
+                if manager.download_ffmpeg_windows(progress_callback=progress):
                     self.frame.after(0, lambda: self.ffmpeg_path_var.set(manager.get_ffmpeg_path()))
-                    self.frame.after(0, lambda: messagebox.showinfo("成功", "FFmpeg 安裝完成！現在您可以下載高品質影片了。"))
+                    self.frame.after(0, lambda: messagebox.showinfo("成功", "FFmpeg 安裝完成！"))
                 else:
-                    self.frame.after(0, lambda: messagebox.showerror("錯誤", "FFmpeg 下載失敗，請檢查網路連線或稍後再試。"))
+                    self.frame.after(0, lambda: messagebox.showerror("錯誤", "FFmpeg 下載失敗。"))
             finally:
                 self.frame.after(0, lambda: self.download_ffmpeg_btn.config(state=tk.NORMAL, text="自動下載"))
-        
         import threading
         threading.Thread(target=do_download, daemon=True).start()
             
-    def get_filename_prefix(self):
-        """獲取當前選擇的檔名前綴"""
-        return self.filename_prefix_var.get()
-        
-    def get_download_path(self):
-        """獲取當前設置的下載路徑"""
-        return self.download_path_var.get()
+    def on_theme_selection_changed(self, event=None):
+        """當使用者選擇主題時（僅預覽）"""
+        new_theme = self.theme_var.get()
+        app = self.get_main_app()
+        if app:
+            app.apply_theme(new_theme)
+
+    def get_main_app(self):
+        """取得主應用程式例項"""
+        curr = self.frame
+        while curr:
+            if hasattr(curr, 'apply_theme'):
+                return curr
+            if hasattr(curr, 'master'):
+                curr = curr.master
+            else:
+                break
+        return None
+
+    def on_theme_changed(self, colors):
+        """當主題改變時同步更新本頁面元件顏色"""
+        try:
+            self.font_size_label.config(foreground=colors['primary'])
+        except Exception:
+            pass
 
     def get_split_pos(self):
-        """取得當前分割條位置"""
         try:
             return int(self._paned.sashpos(0))
         except Exception:
             return 320
 
     def check_updates_now(self):
-        """立即檢查更新（模擬）"""
         messagebox.showinfo("檢查更新", "目前已是最新版本 (v1.0.0)。")
 
     def open_logs_folder(self):
-        """開啟日誌資料夾"""
         try:
             log_dir = 'logs'
             if not os.path.exists(log_dir):
                 os.makedirs(log_dir)
-            
             if platform.system() == 'Windows':
                 os.startfile(log_dir)
-            elif platform.system() == 'Darwin':
-                subprocess.call(['open', log_dir])
             else:
-                subprocess.call(['xdg-open', log_dir])
+                subprocess.call(['open' if platform.system() == 'Darwin' else 'xdg-open', log_dir])
         except Exception as e:
             messagebox.showerror("錯誤", f"無法開啟日誌資料夾：{e}")
+
+    def sync_version_to_files(self, new_version):
+        """同步版本號到 constants.py 與 version_info.py"""
+        try:
+            # 1. 更新 constants.py
+            const_path = 'constants.py'
+            if os.path.exists(const_path):
+                with open(const_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                import re
+                content = re.sub(r'APP_VERSION = ".*?"', f'APP_VERSION = "{new_version}"', content)
+                with open(const_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+            
+            # 2. 更新 version_info.py
+            vinfo_path = 'version_info.py'
+            if os.path.exists(vinfo_path):
+                with open(vinfo_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                content = re.sub(r'VERSION = ".*?"', f'VERSION = "{new_version}"', content)
+                # 切分版本號碼元組
+                v_parts = new_version.split('.')
+                v_tuple = [0, 0, 0, 0]
+                for i in range(min(len(v_parts), 4)):
+                    try:
+                        v_tuple[i] = int(v_parts[i])
+                    except:
+                        pass
+                content = re.sub(r'VERSION_TUPLE = \(.*?\)', f'VERSION_TUPLE = {tuple(v_tuple)}', content)
+                with open(vinfo_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                    
+            # 更新主視窗標題 (如果能獲取到)
+            app = self.get_main_app()
+            if app and hasattr(app, 'root'):
+                from constants import APP_TITLE
+                app.root.title(f"{APP_TITLE} v{new_version}")
+                
+        except Exception as e:
+            print(f"同步版本資訊失敗: {e}")

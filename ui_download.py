@@ -16,7 +16,7 @@ import subprocess
 from datetime import datetime
 from typing import Optional
 
-from constants import UI_TEXT, STATUS_MESSAGES, ERROR_MESSAGES, SUCCESS_MESSAGES, QUALITY_OPTIONS, FILENAME_PREFIXES, reload_filename_prefixes
+from constants import UI_TEXT, STATUS_MESSAGES, ERROR_MESSAGES, SUCCESS_MESSAGES, QUALITY_OPTIONS, FILENAME_PREFIXES, reload_filename_prefixes, COLORS
 from utils.validators import URLValidator, PlaceholderManager, InputValidator
 import glob
 import platform
@@ -209,7 +209,7 @@ class DownloadTab:
         self.message_frame.pack(fill=tk.X, pady=(0, 10))
         
         self.message_label = ttk.Label(self.message_frame, textvariable=self.message_var,
-                                      foreground="blue", font=self.font_manager.get_font())
+                                      foreground=COLORS['info'], font=self.font_manager.get_font())
         self.message_label.pack(side=tk.LEFT)
         
         # 隱藏訊息框架
@@ -250,7 +250,7 @@ class DownloadTab:
         self.info_label = ttk.Label(self.progress_display_container, 
                                    text="準備就緒...", 
                                    font=self.font_manager.get_font(),
-                                   foreground="#003366")
+                                   foreground=COLORS['primary'])
         self.info_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # 詳細日誌核取方塊
@@ -286,10 +286,10 @@ class DownloadTab:
         self.status_text.pack(fill=tk.BOTH, expand=True)
         
         # 設置強調標籤
-        self.status_text.tag_configure("highlight", background="yellow", foreground="black")
-        self.status_text.tag_configure("title", background="#ADD8E6", foreground="#000080")
-        self.status_text.tag_configure("error", foreground="red")
-        self.status_text.tag_configure("success", foreground="green")
+        self.status_text.tag_configure("highlight", background="#FFF9C4", foreground="black") # 淺黃背景
+        self.status_text.tag_configure("title", background="#E8EAF6", foreground=COLORS['primary']) # 淺靛背景
+        self.status_text.tag_configure("error", foreground=COLORS['error'])
+        self.status_text.tag_configure("success", foreground=COLORS['success'])
         
         # 初始化顯示
         # self.log_to_status(STATUS_MESSAGES['ready'])
@@ -1138,3 +1138,13 @@ class DownloadTab:
     def cleanup(self):
         """清理資源"""
         pass
+    def on_theme_changed(self, colors):
+        try:
+            self.message_label.config(foreground=colors['info'])
+            self.info_label.config(foreground=colors['primary'])
+            self.status_text.tag_configure('title', foreground=colors['primary'])
+            self.status_text.tag_configure('error', foreground=colors['error'])
+            self.status_text.tag_configure('success', foreground=colors['success'])
+        except Exception:
+            pass
+

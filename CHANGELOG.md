@@ -1,3 +1,24 @@
+# Update Log v2.6.0
+
+## New Features
+- **Dynamic Theme System**: 
+  - Added "Soft Indigo", "Classic Blue", and "Carbon Grey" professional themes.
+  - **Instant Preview**: Themes now apply immediately upon selection for easier comparison.
+  - Persist only after clicking "Save" to prevent accidental changes.
+- **UI & Settings Optimization**:
+  - **Editable Versioning**: Users can now manually set the version number in Settings, which automatically updates all internal metadata.
+  - **Clean UI**: Removed the redundant "External Download" tab and clutter from the Settings page.
+- **Packaging/Distribution**:
+  - **Simplified Packaging**: Renamed `build_exe.bat` to **`EXE.bat`**.
+  - **Smart Naming**: The resulting EXE file is now automatically named with the current version number (e.g., `YouTube_Downloader_v2.6.0.exe`).
+
+## Bug Fixes
+- Fixed file encoding/character corruption issues in `ui_settings.py`.
+- Fixed `FontManager.get_font` argument mismatch.
+- Standardized UI component spacing and color consistency across all tabs.
+
+---
+
 # Update Log v2.5.0
 
 ## New Features

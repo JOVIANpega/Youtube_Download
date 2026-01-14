@@ -16,14 +16,13 @@ from services.history_store import HistoryStore
 
 # 導入自定義模組
 from ui_download import DownloadTab
-from ui_external import ExternalTab
 from ui_history import HistoryTab
 from ui_settings import SettingsTab
 from utils.ui_fonts import FontManager
 from utils.path_utils import get_resource_path
 from services.settings import SettingsManager
 from logging_config import setup_logging
-from constants import APP_TITLE, WINDOW_SIZE, MIN_WINDOW_SIZE
+from constants import APP_TITLE, WINDOW_SIZE, MIN_WINDOW_SIZE, COLORS, THEMES, DEFAULT_THEME
 import version_info
 
 class MainApplication:
@@ -31,12 +30,14 @@ class MainApplication:
     
     def __init__(self):
         self.root = tk.Tk()
+        self.root.configure(bg=COLORS['bg_main'])
         self.setup_window()
         self.setup_logging()
         self.setup_managers()
         self.setup_ui()
         self.setup_exception_handler()
         self.load_settings()
+        self.apply_theme_from_settings()
         
     def setup_window(self):
         """設置主視窗"""
@@ -91,44 +92,27 @@ class MainApplication:
         self.notebook = ttk.Notebook(main_frame)
         # 樣式：TAB 標籤顏色與 hover 效果
         try:
-            style = ttk.Style(self.root)
+            self.style = ttk.Style(self.root)
             # 強制切換到 clam 主題以確保顏色生效
-            if 'clam' in style.theme_names():
-                style.theme_use('clam')
+            if 'clam' in self.style.theme_names():
+                self.style.theme_use('clam')
                 
-            # Notebook 背景
-            style.configure('TNotebook', background='#f0f2f5', borderwidth=0)
-            
-            # 定義分頁按鈕樣式
-            # 選中前的顏色：中灰色底
-            style.configure('TNotebook.Tab', 
-                            padding=(20, 10), 
-                            font=self.font_manager.get_font('bold'),
-                            background='#d1d8e0', 
-                            foreground='#404040',
-                            borderwidth=1)
-            
-            # 狀態對應顏色：選中為深藍色 (#003366)、文字為白色
-            style.map('TNotebook.Tab',
-                      background=[('selected', '#003366'), ('active', '#004c99')],
-                      foreground=[('selected', '#ffffff'), ('active', '#ffffff')],
-                      lightcolor=[('selected', '#003366')],
-                      bordercolor=[('selected', '#002244')])
+            # 初始化時先套用一個預設或從設定讀取的主題
+            # (真正的套用會在 load_settings 後的 apply_theme_from_settings 執行)
         except Exception as e:
             print(f"樣式設定失敗: {e}")
+        self.notebook.pack(fill=tk.BOTH, expand=True)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
         # 創建各個分頁
         self.download_tab = DownloadTab(self.notebook, self.font_manager, self.settings_manager, self.history_store)
         self.download_tab_2 = DownloadTab(self.notebook, self.font_manager, self.settings_manager, self.history_store)
-        self.external_tab = ExternalTab(self.notebook, self.font_manager)
         self.history_tab = HistoryTab(self.notebook, self.font_manager, self.history_store)
         self.settings_tab = SettingsTab(self.notebook, self.font_manager, self.settings_manager)
         
         # 添加分頁到筆記本
         self.notebook.add(self.download_tab.frame, text="下載 1")
         self.notebook.add(self.download_tab_2.frame, text="下載 2")
-        self.notebook.add(self.external_tab.frame, text="外部下載器")
         self.notebook.add(self.history_tab.frame, text="歷史記錄")
         self.notebook.add(self.settings_tab.frame, text="設定")
         
@@ -138,6 +122,58 @@ class MainApplication:
         # 創建狀態列
         self.status_bar = ttk.Label(main_frame, text="就緒", relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        
+    def apply_theme_from_settings(self):
+        """從設定中載入並套用主題"""
+        settings = self.settings_manager.load_settings()
+        theme_name = settings.get('theme', DEFAULT_THEME)
+        self.apply_theme(theme_name)
+
+    def apply_theme(self, theme_name):
+        """套用指定的主題"""
+        if theme_name not in THEMES:
+            theme_name = DEFAULT_THEME
+            
+        colors = THEMES[theme_name]
+        
+        # 更新全域 COLORS 指向
+        import constants
+        constants.COLORS = colors
+        
+        # 更新視窗背景
+        self.root.configure(bg=colors['bg_main'])
+        
+        # 更新樣式
+        style = self.style
+        style.configure('TNotebook', background=colors['bg_main'])
+        style.configure('TNotebook.Tab', 
+                        background='#E1E5EB', 
+                        foreground=colors['secondary'])
+        
+        style.map('TNotebook.Tab',
+                  background=[('selected', colors['primary']), ('active', colors['accent'])],
+                  foreground=[('selected', '#ffffff'), ('active', '#ffffff')],
+                  lightcolor=[('selected', colors['primary'])],
+                  bordercolor=[('selected', colors['primary'])])
+
+        style.configure('Accent.TButton', 
+                        background=colors['primary'], 
+                        foreground='white')
+        style.map('Accent.TButton',
+                  background=[('active', colors['accent']), ('pressed', colors['primary'])])
+        
+        style.configure('TFrame', background=colors['bg_main'])
+        style.configure('TLabelframe', background=colors['bg_main'])
+        style.configure('TLabelframe.Label', background=colors['bg_main'], foreground=colors['text_main'])
+        style.configure('TLabel', background=colors['bg_main'], foreground=colors['text_main'])
+        
+        # 強制 UI 重新繪製
+        self.root.update_idletasks()
+        
+        # 通知各分頁更新 (如果分頁有實作更新主題的方法)
+        for tab in [self.download_tab, self.download_tab_2, self.history_tab, self.settings_tab]:
+            if hasattr(tab, 'on_theme_changed'):
+                tab.on_theme_changed(colors)
         
     def on_tab_changed(self, event):
         """當切換分頁時執行"""
@@ -211,9 +247,10 @@ class MainApplication:
                     'filename_prefix': self.download_tab.prefix_var.get(),
                 })
 
-            # 如果有設定分頁，保存其設定
+            # 從設定分頁取得額外設定
             if hasattr(self, 'settings_tab'):
                 settings.update({
+                    'theme': self.settings_tab.theme_var.get(),
                     'auto_merge': self.settings_tab.auto_merge_var.get(),
                     'keep_video': self.settings_tab.keep_video_var.get(),
                     'keep_audio': self.settings_tab.keep_audio_var.get(),

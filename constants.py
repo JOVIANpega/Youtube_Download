@@ -7,7 +7,7 @@ UI 固定字串、顏色、提示語
 
 # 應用程式資訊
 APP_TITLE = "YouTube 下載器"
-APP_VERSION = "1.0.0"
+APP_VERSION = "2.6.0"
 
 # 視窗設定
 WINDOW_SIZE = (500, 400)
@@ -18,15 +18,51 @@ DEFAULT_FONT_SIZE = 12
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 20
 
-# 顏色定義
-COLORS = {
-    'success': '#28a745',
-    'error': '#dc3545',
-    'warning': '#ffc107',
-    'info': '#17a2b8',
-    'primary': '#007bff',
-    'secondary': '#6c757d'
+# 主題色彩定義
+THEMES = {
+    'Soft Indigo': {
+        'success': '#43A047',
+        'error': '#E53935',
+        'warning': '#FB8C00',
+        'info': '#1E88E5',
+        'primary': '#3949AB',
+        'secondary': '#757575',
+        'bg_main': '#F5F7FA',
+        'bg_card': '#FFFFFF',
+        'text_main': '#2C3E50',
+        'accent': '#5C6BC0'
+    },
+    'Classic Blue': {
+        'success': '#28A745',
+        'error': '#DC3545',
+        'warning': '#FFC107',
+        'info': '#17A2B8',
+        'primary': '#003366',
+        'secondary': '#6C757D',
+        'bg_main': '#F0F2F5',
+        'bg_card': '#FFFFFF',
+        'text_main': '#333333',
+        'accent': '#0056B3'
+    },
+    'Carbon Grey': {
+        'success': '#66BB6A',
+        'error': '#EF5350',
+        'warning': '#FFA726',
+        'info': '#42A5F5',
+        'primary': '#424242',
+        'secondary': '#9E9E9E',
+        'bg_main': '#EEEEEE',
+        'bg_card': '#FFFFFF',
+        'text_main': '#212121',
+        'accent': '#616161'
+    }
 }
+
+# 預設主題
+DEFAULT_THEME = 'Soft Indigo'
+
+# 指向當前有效色彩 (相容性保留，初始化時會被 main.py 覆蓋)
+COLORS = THEMES[DEFAULT_THEME]
 
 # UI 文字
 UI_TEXT = {

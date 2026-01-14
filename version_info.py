@@ -6,8 +6,8 @@
 """
 
 # 版本資訊
-VERSION = "2.5.0"
-VERSION_TUPLE = (2, 5, 0, 0)
+VERSION = "2.6.0"
+VERSION_TUPLE = (2, 6, 0, 0)
 AUTHOR = "YouTube Downloader Team"
 DESCRIPTION = "多平台視頻下載器 - 支援多行狀態顯示與檔名前綴"
 COPYRIGHT = "Copyright © 2024"

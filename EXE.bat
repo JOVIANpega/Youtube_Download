@@ -69,6 +69,15 @@ xcopy /E /I /Y "assets" "%OUTDIR%\assets" >nul 2>&1
 
 echo [同步] 已將 config 與 assets 複製到 dist\ 供執行時使用/修改
 
-popd >nul
+echo.
+echo [整理] 正在根據版本號重新命名輸出檔案...
+set FINAL_NAME=YouTube_Downloader_v%APP_VERSION%.exe
+if exist "dist\main.exe" (
+    move /Y "dist\main.exe" "dist\%FINAL_NAME%" >nul
+    echo [完成] 執行檔已命名為: %FINAL_NAME%
+) else (
+    echo [提醒] 找不到預設的 main.exe，請檢查 PyInstaller 輸出。
+)
 
+popd >nul
 endlocal
