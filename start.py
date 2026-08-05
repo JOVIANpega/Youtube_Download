@@ -8,13 +8,19 @@ YouTube 下載器啟動腳本
 import sys
 import os
 
+# 強制使用 UTF-8 輸出，避免 Windows 控制台 cp950 編碼報錯
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 # 添加當前目錄到路徑
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 def check_environment():
     """檢查運行環境"""
-    print("🔍 檢查運行環境...")
+    print("--- 檢查運行環境 ---")
     
     # 檢查 Python 版本
     version = sys.version_info
@@ -23,22 +29,43 @@ def check_environment():
         print("   需要 Python 3.7 或更高版本")
         return False
     
-    print(f"✅ Python 版本: {version.major}.{version.minor}.{version.micro}")
+    print(f"[OK] Python 版本: {version.major}.{version.minor}.{version.micro}")
     
     # 檢查 Tkinter
     try:
         import tkinter
-        print("✅ Tkinter 可用")
+        print("[OK] Tkinter 可用")
     except ImportError:
-        print("❌ Tkinter 不可用")
+        print("[!] Tkinter 不可用")
         print("   請安裝 python3-tk 套件")
         return False
     
     return True
 
+def check_nodejs():
+    """檢查 Node.js 是否安裝"""
+    print("\n--- 檢查 JavaScript 執行環境 ---")
+    import shutil
+    node_exe = shutil.which("node") or "C:\\Program Files\\nodejs\\node.exe"
+    
+    if os.path.exists(node_exe):
+        try:
+            import subprocess
+            # 使用絕對路徑
+            version = subprocess.check_output([node_exe, "--version"], stderr=subprocess.STDOUT, shell=True).decode().strip()
+            print(f"[OK] Node.js 已安裝: {version}")
+            return True
+        except:
+            pass
+    
+    print("[!] 警告: 未偵測到 Node.js")
+    print("    YouTube 下載 1080p+ 影片需要 Node.js 來解析加密協議。")
+    print("    建議下載並安裝: https://nodejs.org/")
+    return False
+
 def check_dependencies():
     """檢查可選依賴"""
-    print("\n📦 檢查依賴套件...")
+    print("\n--- 檢查依賴套件 ---")
     
     deps_status = {}
     
@@ -46,19 +73,19 @@ def check_dependencies():
     try:
         import yt_dlp
         deps_status['yt-dlp'] = True
-        print("✅ yt-dlp 已安裝")
+        print("[OK] yt-dlp 已安裝")
     except ImportError:
         deps_status['yt-dlp'] = False
-        print("⚠️  yt-dlp 未安裝 (下載功能將不可用)")
+        print("[!] yt-dlp 未安裝 (下載功能將不可用)")
     
     # 檢查 requests
     try:
         import requests
         deps_status['requests'] = True
-        print("✅ requests 已安裝")
+        print("[OK] requests 已安裝")
     except ImportError:
         deps_status['requests'] = False
-        print("⚠️  requests 未安裝 (FFmpeg 自動下載將不可用)")
+        print("[!] requests 未安裝 (FFmpeg 自動下載將不可用)")
     
     return deps_status
 
@@ -67,7 +94,7 @@ def install_missing_deps(missing_deps):
     if not missing_deps:
         return True
     
-    print(f"\n🔧 發現缺失的依賴: {', '.join(missing_deps)}")
+    print(f"\n--- 發現缺失的依賴: {', '.join(missing_deps)} ---")
     
     try:
         response = input("是否要自動安裝？(y/n): ").lower().strip()
@@ -78,12 +105,12 @@ def install_missing_deps(missing_deps):
                 print(f"正在安裝 {dep}...")
                 try:
                     subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
-                    print(f"✅ {dep} 安裝成功")
+                    print(f"[OK] {dep} 安裝成功")
                 except subprocess.CalledProcessError:
-                    print(f"❌ {dep} 安裝失敗")
+                    print(f"[-] {dep} 安裝失敗")
                     return False
             
-            print("✅ 所有依賴安裝完成")
+            print("[OK] 所有依賴安裝完成")
             return True
         else:
             print("跳過依賴安裝")
@@ -94,7 +121,7 @@ def install_missing_deps(missing_deps):
 
 def choose_startup_mode(deps_status):
     """選擇啟動模式"""
-    print("\n🚀 選擇啟動模式:")
+    print("\n--- 選擇啟動模式 ---")
     
     if all(deps_status.values()):
         print("1. 完整版 (推薦) - 所有功能可用")
@@ -131,29 +158,34 @@ def choose_startup_mode(deps_status):
 
 def run_application(mode):
     """運行應用程式"""
-    print(f"\n🎯 啟動 {mode} 模式...")
+    print(f"\n--- 啟動 {mode} 模式 ---")
+    
+    import subprocess
     
     try:
+        cmd = [sys.executable]
+        
         if mode == "full":
             print("正在啟動完整版...")
-            import main
-            main.main()
+            # 使用 subprocess 啟動主程式，這能確保新安裝的依賴被正確加載
+            cmd.append("main.py")
+            subprocess.run(cmd)
             
         elif mode == "simple":
             print("正在啟動簡化版...")
-            import simple_main
-            simple_main.main()
+            cmd.append("simple_main.py")
+            subprocess.run(cmd)
             
         elif mode == "test":
             print("正在運行測試...")
-            import run_tests
-            run_tests.main()
+            cmd.append("run_tests.py")
+            subprocess.run(cmd)
             
         return True
         
     except Exception as e:
-        print(f"❌ 啟動失敗: {e}")
-        print("\n🔧 建議:")
+        print(f"\n[!] 啟動失敗: {e}")
+        print("\n建 議:")
         print("1. 檢查依賴: python check_dependencies.py")
         print("2. 安裝依賴: python install_deps.py")
         print("3. 運行測試: python run_tests.py")
@@ -165,14 +197,16 @@ def run_application(mode):
 
 def main():
     """主函數"""
-    print("🎬 YouTube 下載器")
-    print("=" * 50)
+    print("--- 檢查運行環境 ---")
     
     # 檢查基本環境
     if not check_environment():
-        print("\n❌ 環境檢查失敗，無法運行")
+        print("\n[!] 環境檢查失敗，無法運行")
         input("按 Enter 鍵退出...")
         return False
+    
+    # 檢查 Node.js
+    check_nodejs()
     
     # 檢查依賴
     deps_status = check_dependencies()
@@ -180,8 +214,11 @@ def main():
     # 處理缺失的依賴
     missing_deps = [dep for dep, status in deps_status.items() if not status]
     if missing_deps:
-        if not install_missing_deps(missing_deps):
-            print("⚠️  部分功能可能不可用")
+        if install_missing_deps(missing_deps):
+            import importlib
+            importlib.invalidate_caches()
+        else:
+            print("[!] 部分功能可能不可用")
     
     # 重新檢查依賴狀態
     deps_status = check_dependencies()
@@ -207,9 +244,9 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n👋 用戶中斷，程式退出")
+        print("\n\n用戶中斷，程式退出")
     except Exception as e:
-        print(f"\n💥 未預期的錯誤: {e}")
+        print(f"\n[!] 未預期的錯誤: {e}")
         import traceback
         traceback.print_exc()
         input("按 Enter 鍵退出...")

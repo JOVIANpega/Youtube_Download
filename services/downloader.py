@@ -54,6 +54,7 @@ class DownloadTask:
         self.error_message = ""
         self.start_time = None
         self.end_time = None
+        self.downloaded_resolution = ""
         
     def to_dict(self):
         """轉換為字典"""
@@ -72,6 +73,7 @@ class DownloadTask:
             'error_message': self.error_message,
             'start_time': self.start_time,
             'end_time': self.end_time,
+            'downloaded_resolution': self.downloaded_resolution,
         }
 
 class VideoDownloader:
@@ -176,6 +178,22 @@ class VideoDownloader:
                 new_filename = os.path.basename(d.get('filename', ''))
                 if new_filename and (not self.current_task.filename or '.part' in self.current_task.filename):
                     self.current_task.filename = new_filename
+                
+                # 嘗試獲取下載畫質
+                info_dict = d.get('info_dict', {})
+                height = info_dict.get('height')
+                if not height and 'requested_formats' in info_dict:
+                    for f in info_dict['requested_formats']:
+                        if f.get('vcodec') != 'none' and f.get('height'):
+                            height = f.get('height')
+                            break
+                if height:
+                    self.current_task.downloaded_resolution = f"{height}p"
+                else:
+                    quality = self.current_task.options.get('quality', '')
+                    if quality and quality != 'best' and quality != 'audio':
+                        self.current_task.downloaded_resolution = quality
+                        
                 self.current_task.progress = 100.0
                 self._update_progress(100.0, "下載/合併完成")
                 
@@ -185,8 +203,11 @@ class VideoDownloader:
         except Exception as e:
             logger.error(f"進度鉤子錯誤: {e}")
             
-    def get_video_info(self, url: str, cancellation_token: CancellationToken = None) -> Dict[str, Any]:
+    def get_video_info(self, url: str, cancellation_token: CancellationToken = None, options: Dict[str, Any] = None) -> Dict[str, Any]:
         """獲取視頻資訊"""
+        from utils.validators import URLValidator
+        url = URLValidator.normalize_url(url)
+        
         if yt_dlp is None:
             raise Exception("yt-dlp 未安裝，無法獲取視頻資訊")
             
@@ -201,7 +222,6 @@ class VideoDownloader:
                 'no_warnings': True,
                 'extract_flat': False,
                 'socket_timeout': 15, # 進一步縮短，避免長久卡轉
-                'source_address': '0.0.0.0', # 強制使用 IPv4 增加連線速度
             }
             
             # 獲取資訊時也套用代理 (SettingsManager 取得全域設定)
@@ -211,6 +231,16 @@ class VideoDownloader:
             proxy = global_settings.get('proxy', '').strip()
             if proxy:
                 ydl_opts['proxy'] = proxy
+            
+            # 獲取資訊時也套用 Cookies
+            if options:
+                cookie_file = options.get('cookie_file', '').strip()
+                if cookie_file and os.path.exists(cookie_file):
+                    ydl_opts['cookiefile'] = cookie_file
+                else:
+                    browser = options.get('browser', 'none')
+                    if browser and browser != 'none':
+                        ydl_opts['cookiesfrombrowser'] = (browser,)
             
             # 如果有提供 Token，也順便檢查一下
             if cancellation_token and cancellation_token.is_cancelled():
@@ -223,28 +253,145 @@ class VideoDownloader:
                 
                 info = ydl.extract_info(url, download=False)
                 
-            return {
-                'title': info.get('title', '未知標題'),
-                'id': info.get('id', 'no_id'),
-                'duration': info.get('duration', 0),
-                'uploader': info.get('uploader', '未知上傳者'),
-                'upload_date': info.get('upload_date', ''),
-                'view_count': info.get('view_count', 0),
-                'description': info.get('description', ''),
-                'thumbnail': info.get('thumbnail', ''),
-                'formats': info.get('formats', []),
-                'platform': info.get('extractor', ''),
-            }
+            if info:
+                info['title'] = info.get('title') or '未知標題'
+                info['platform'] = info.get('extractor', '')
+            return info
             
         except Exception as e:
             logger.error(f"獲取視頻資訊失敗: {e}")
             raise Exception(f"無法獲取視頻資訊: {str(e)}")
+
+    def update_ytdlp(self) -> bool:
+        """更新 yt-dlp 元件"""
+        try:
+            import subprocess
+            import sys
+            
+            # 建立多重備用更新指令
+            commands = []
+            if getattr(sys, 'frozen', False):
+                # 打包環境：sys.executable 是打包後的 EXE
+                commands = [
+                    ["pip", "install", "-U", "yt-dlp"],
+                    ["pip3", "install", "-U", "yt-dlp"],
+                    ["python", "-m", "pip", "install", "-U", "yt-dlp"]
+                ]
+            else:
+                # 開發環境：使用當前執行 Python
+                commands = [
+                    [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+                    ["pip", "install", "-U", "yt-dlp"]
+                ]
+                
+            success = False
+            for cmd in commands:
+                try:
+                    logger.info(f"正在嘗試更新 yt-dlp，指令: {' '.join(cmd)}")
+                    result = subprocess.run(
+                        cmd, 
+                        stdout=subprocess.PIPE, 
+                        stderr=subprocess.PIPE, 
+                        text=True, 
+                        timeout=90, 
+                        shell=True
+                    )
+                    if result.returncode == 0:
+                        success = True
+                        logger.info(f"yt-dlp 更新成功 (指令: {' '.join(cmd)})")
+                        break
+                    else:
+                        logger.warning(f"指令 {' '.join(cmd)} 執行失敗，錯誤碼: {result.returncode}, 錯誤: {result.stderr}")
+                except Exception as ex:
+                    logger.warning(f"執行 {' '.join(cmd)} 發生異常: {ex}")
+                    continue
+            
+            return success
+        except Exception as e:
+            logger.error(f"更新 yt-dlp 失敗: {e}")
+            return False
+            
+    def get_download_resolution(self, url: str, options: Dict[str, Any], 
+                                cancellation_token: CancellationToken = None, 
+                                logger: Any = None) -> tuple:
+        """獲取預計下載的畫質與最高畫質"""
+        from utils.validators import URLValidator
+        url = URLValidator.normalize_url(url)
+        
+        if yt_dlp is None:
+            raise Exception("yt-dlp 未安裝，無法獲取視頻資訊")
+            
+        if cancellation_token and cancellation_token.is_cancelled():
+            raise OperationCancelledException("操作已取消")
+            
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'socket_timeout': 15,
+            'format': self._get_format_selector(options),
+        }
+        
+        # 套用代理
+        proxy = options.get('proxy', '').strip()
+        if proxy:
+            ydl_opts['proxy'] = proxy
+            
+        # 帳號授權
+        cookie_file = options.get('cookie_file', '').strip()
+        if cookie_file and os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
+        else:
+            browser = options.get('browser', 'none')
+            if browser and browser != 'none':
+                ydl_opts['cookiesfrombrowser'] = (browser,)
+                
+        if cancellation_token and cancellation_token.is_cancelled():
+            raise OperationCancelledException("操作已取消")
+            
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            if cancellation_token and cancellation_token.is_cancelled():
+                raise OperationCancelledException("操作已取消")
+            
+            info = ydl.extract_info(url, download=False)
+            
+        title = info.get('title', '未知標題')
+        
+        # 預計下載畫質 (如果是影片，yt-dlp 會在 info 中設定 chosen format 的 height)
+        height = info.get('height')
+        
+        # 最高可用畫質
+        formats = info.get('formats', [])
+        heights = []
+        for f in formats:
+            h = f.get('height')
+            if h is not None and isinstance(h, int):
+                heights.append(h)
+                
+        max_height = max(heights) if heights else None
+        
+        # 如果 height 未知而 max_height 存在，且 options 設定是下載 best
+        # 我們也可以合理推測 height = max_height
+        if height is None and max_height is not None:
+            quality = options.get('quality', 'best')
+            if quality == 'best':
+                height = max_height
+            elif quality.endswith('p'):
+                try:
+                    q_val = int(quality[:-1])
+                    height = min(q_val, max_height)
+                except ValueError:
+                    pass
+                
+        return title, height, max_height
             
     def download(self, url: str, output_path: str, options: Dict[str, Any] = None,
                 cancellation_token: CancellationToken = None,
                 progress_reporter: ProgressReporter = None,
                 logger: Any = None) -> str:
         """下載視頻"""
+        from utils.validators import URLValidator
+        url = URLValidator.normalize_url(url)
         
         if yt_dlp is None:
             raise Exception("yt-dlp 未安裝，無法下載視頻")
@@ -266,8 +413,8 @@ class VideoDownloader:
             if cancellation_token and cancellation_token.is_cancelled():
                 raise OperationCancelledException("操作已取消")
                 
-            # 獲取視頻資訊 (傳入取消令牌)
-            video_info = self.get_video_info(url, cancellation_token)
+            # 獲取視頻資訊 (傳入取消令牌與選項)
+            video_info = self.get_video_info(url, cancellation_token, options)
             title = video_info.get('title', 'video')
             
             # 處理檔名
@@ -338,6 +485,17 @@ class VideoDownloader:
                 
             # 完成
             self.current_task.end_time = time.time()
+            
+            # 確保 downloaded_resolution 被設定
+            if not getattr(self.current_task, 'downloaded_resolution', ''):
+                height = video_info.get('height')
+                if height:
+                    self.current_task.downloaded_resolution = f"{height}p"
+                else:
+                    quality = options.get('quality', '')
+                    if quality and quality != 'best' and quality != 'audio':
+                        self.current_task.downloaded_resolution = quality
+            
             self._update_status(DownloadStatus.COMPLETED, "下載完成")
             
             return self.current_task.filename
@@ -376,7 +534,6 @@ class VideoDownloader:
             'concurrent_fragment_downloads': 5, 
             'nocheckcertificate': True,
             'socket_timeout': 30,
-            'source_address': '0.0.0.0', # 強制 IPv4 避免連線逾時
             'retries': 3,
             'ignoreerrors': True,
             'extractor_args': {
@@ -403,10 +560,14 @@ class VideoDownloader:
         # 移除手動旋轉 UA 邏輯，讓 yt-dlp 依照 player_client 自動配對正確的 UA，避免特徵不符被抓
         pass
         
-        # 帳號授權 (Cookies from browser)
-        browser = options.get('browser', 'none')
-        if browser and browser != 'none':
-            ydl_opts['cookiesfrombrowser'] = (browser,)
+        # 帳號授權 (Cookies from browser / Cookie file)
+        cookie_file = options.get('cookie_file', '').strip()
+        if cookie_file and os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
+        else:
+            browser = options.get('browser', 'none')
+            if browser and browser != 'none':
+                ydl_opts['cookiesfrombrowser'] = (browser,)
         
         # 品質與格式
         quality = options.get('quality', 'best')
@@ -432,14 +593,14 @@ class VideoDownloader:
         quality = options.get('quality', 'best')
         
         if quality == 'best':
-            return 'best[height<=1080]/best'
+            return 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'
         elif quality == 'audio':
             return 'bestaudio/best'
         elif quality.endswith('p'):
             height = quality[:-1]
-            return f'best[height<={height}]/best'
+            return f'bestvideo[height<={height}]+bestaudio/best[height<={height}]/best'
         else:
-            return 'best'
+            return 'bestvideo+bestaudio/best'
             
     def cancel_download(self):
         """取消下載"""

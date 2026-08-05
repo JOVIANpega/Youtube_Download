@@ -35,7 +35,9 @@ class SettingsTab:
         self.theme_var = tk.StringVar(value=DEFAULT_THEME)
         self.version_var = tk.StringVar(value=APP_VERSION)
         self.proxy_var = tk.StringVar()
+        self.cookie_file_var = tk.StringVar() # 修正：在這裡初始化以防啟動崩潰
         self.use_random_delay_var = tk.BooleanVar()
+        self.po_token_var = tk.StringVar()
         
         self.setup_ui()
         self.load_settings()
@@ -293,30 +295,76 @@ class SettingsTab:
         self.ffmpeg_path_var.trace('w', lambda *_: self.save_all_settings_silent())
 
         # 網路與避障設定
-        network_frame = ttk.Frame(advanced_frame)
-        network_frame.pack(fill=tk.X, pady=(10, 0))
+        # 代理伺服器
+        proxy_row = ttk.Frame(advanced_frame)
+        proxy_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(proxy_row, text="代理伺服器 (Proxy):", width=20).pack(side=tk.LEFT)
+        self.proxy_entry = ttk.Entry(proxy_row, textvariable=self.proxy_var)
+        self.proxy_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        ttk.Label(network_frame, text="代理伺服器 (Proxy):").pack(anchor=tk.W)
-        self.proxy_entry = ttk.Entry(
-            network_frame,
-            textvariable=self.proxy_var,
-            font=self.font_manager.get_font()
+        # 登入狀態檔案是進階備援；一般公開影片不需要設定。
+        cookie_row = ttk.Frame(advanced_frame)
+        cookie_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(cookie_row, text="登入狀態檔 (*.txt):", width=20).pack(side=tk.LEFT)
+        
+        self.cookie_file_entry = ttk.Entry(cookie_row, textvariable=self.cookie_file_var)
+        self.cookie_file_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        cookie_browse_btn = ttk.Button(
+            cookie_row,
+            text="瀏覽",
+            command=self.browse_cookie_file
         )
-        self.proxy_entry.pack(fill=tk.X, pady=(2, 5))
-        ttk.Label(network_frame, text="範例: http://127.0.0.1:7890", foreground="gray", font=self.font_manager.get_font()).pack(anchor=tk.W)
+        cookie_browse_btn.pack(side=tk.LEFT)
+        self.font_manager.register_widget(self.cookie_file_entry)
+        self.font_manager.register_widget(cookie_browse_btn)
+        cookie_hint = ttk.Label(
+            advanced_frame,
+            text="公開影片不用設定。只有 FB / IG / Threads / TikTok 等限制內容下載失敗時，才需要選擇 cookies.txt 或在下載頁選 Chrome / Edge / Firefox。",
+            foreground="gray",
+            font=self.font_manager.get_font('small'),
+            wraplength=360,
+            justify=tk.LEFT
+        )
+        cookie_hint.pack(anchor=tk.W, pady=(0, 8))
+        self.font_manager.register_widget(cookie_hint)
+        
+        # --- 新增：PO Token (針對 403 Forbidden 與高畫質) ---
+        po_token_row = ttk.Frame(advanced_frame)
+        po_token_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(po_token_row, text="YouTube PO Token:", width=20).pack(side=tk.LEFT)
+        self.po_token_entry = ttk.Entry(po_token_row, textvariable=self.po_token_var)
+        self.po_token_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.font_manager.register_widget(self.po_token_entry)
+        
+        # 幫用戶寫個小小提示
+        po_help_label = ttk.Label(
+            advanced_frame,
+            text="💡 若 1080P 下載出現 Requested format is not available，請填寫此 Token。\n   (請上網搜尋「yt-dlp po token 獲取工具」或從 GitHub 取得)",
+            foreground="#d9534f",
+            font=self.font_manager.get_font('small'),
+            justify=tk.LEFT
+        )
+        po_help_label.pack(anchor=tk.W, pady=(0, 5))
+        self.font_manager.register_widget(po_help_label)
 
+        # 隨機延遲
+        delay_row = ttk.Frame(advanced_frame)
+        delay_row.pack(fill=tk.X, pady=(5, 0))
         random_delay_cb = ttk.Checkbutton(
-            network_frame,
+            delay_row,
             text="啟用隨機延遲 (防封鎖/人機模擬)",
             variable=self.use_random_delay_var
         )
-        random_delay_cb.pack(anchor=tk.W, pady=(5, 0))
+        random_delay_cb.pack(anchor=tk.W)
         
         self.font_manager.register_widget(self.proxy_entry)
         self.font_manager.register_widget(random_delay_cb)
         
         # 即時保存網路設定
         self.proxy_var.trace('w', lambda *_: self.save_all_settings_silent())
+        self.cookie_file_var.trace('w', lambda *_: self.save_all_settings_silent()) # 新增 cookie_file_var trace
+        self.po_token_var.trace('w', lambda *_: self.save_all_settings_silent())
         self.use_random_delay_var.trace('w', lambda *_: self.save_all_settings_silent())
         
         # 系統維護按鈕
@@ -328,8 +376,25 @@ class SettingsTab:
             text="開啟日誌資料夾",
             command=self.open_logs_folder
         )
-        open_logs_btn.pack(side=tk.LEFT)
+        open_logs_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        clear_cache_btn = ttk.Button(
+            maint_frame,
+            text="清理下載快取",
+            command=self.clear_download_cache
+        )
+        clear_cache_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        update_ytdlp_btn = ttk.Button(
+            maint_frame,
+            text="更新下載組件",
+            command=self.update_ytdlp_click
+        )
+        update_ytdlp_btn.pack(side=tk.LEFT)
+        
         self.font_manager.register_widget(open_logs_btn)
+        self.font_manager.register_widget(clear_cache_btn)
+        self.font_manager.register_widget(update_ytdlp_btn)
         
         # 說明文字
         advanced_help_frame = ttk.Frame(advanced_frame)
@@ -390,6 +455,8 @@ class SettingsTab:
                 'check_for_updates': self.check_updates_var.get(),
                 'ffmpeg_path': self.ffmpeg_path_var.get(),
                 'proxy': self.proxy_var.get(),
+                'cookie_file_path': self.cookie_file_var.get(), # 新增 cookie_file_path
+                'po_token': self.po_token_var.get(),
                 'use_random_delay': self.use_random_delay_var.get(),
             }
             self.settings_manager.update_settings(settings)
@@ -412,6 +479,13 @@ class SettingsTab:
             self.theme_var.set(settings.get('theme', DEFAULT_THEME))
             self.ffmpeg_path_var.set(settings.get('ffmpeg_path', ''))
             self.proxy_var.set(settings.get('proxy', ''))
+            self.po_token_var.set(settings.get('po_token', ''))
+            
+            current_cookie_path = settings.get('cookie_file_path', '')
+            if current_cookie_path and not os.path.exists(current_cookie_path):
+                current_cookie_path = ''
+            self.cookie_file_var.set(current_cookie_path)
+            
             self.use_random_delay_var.set(settings.get('use_random_delay', True))
 
             try:
@@ -443,6 +517,8 @@ class SettingsTab:
                 'theme': self.theme_var.get(),
                 'ffmpeg_path': self.ffmpeg_path_var.get(),
                 'proxy': self.proxy_var.get(),
+                'cookie_file_path': self.cookie_file_var.get(), # 新增 cookie_file_path
+                'po_token': self.po_token_var.get(),
                 'use_random_delay': self.use_random_delay_var.get(),
             }
             
@@ -563,6 +639,73 @@ class SettingsTab:
                 subprocess.call(['open' if platform.system() == 'Darwin' else 'xdg-open', log_dir])
         except Exception as e:
             messagebox.showerror("錯誤", f"無法開啟日誌資料夾：{e}")
+
+    def clear_download_cache(self):
+        """清理 yt-dlp 緩存與暫存檔"""
+        from services.downloader import VideoDownloader
+        downloader = VideoDownloader()
+        
+        cache_ok = downloader.clear_cache()
+        
+        # 詢問是否要刪除 .part 檔案 (這對於解決 403 Forbidden 續傳報錯非常有幫助)
+        msg = "下載組件內建快取已清理。" if cache_ok else "下載快取清理失敗。"
+        msg += "\n\n是否也要一併刪除下載資料夾中的 .part 暫存檔？\n(注意：這會清空未完成的下載進度，但通常能有效解決「HTTP 403 Forbidden」報錯)"
+        
+        if messagebox.askyesno("清理暫存", msg):
+            path = self.download_path_var.get()
+            if os.path.exists(path):
+                import glob
+                try:
+                    part_files = glob.glob(os.path.join(path, "*.part"))
+                    ytdl_part_files = glob.glob(os.path.join(path, "*.ytdl")) # 同時清理 .ytdl 檔
+                    all_parts = part_files + ytdl_part_files
+                    
+                    count = 0
+                    for f in all_parts:
+                        try:
+                            os.remove(f)
+                            count += 1
+                        except:
+                            pass
+                    messagebox.showinfo("清理完成", f"已刪除 {count} 個暫存檔案。")
+                except Exception as e:
+                    messagebox.showerror("錯誤", f"清理暫存檔時發生錯誤: {e}")
+            else:
+                messagebox.showwarning("警告", "找不到目前的下載路徑，無法清理暫存檔。")
+        elif cache_ok:
+            messagebox.showinfo("成功", "已成功清理下載組件快取。")
+
+    def update_ytdlp_click(self):
+        """點擊更新 yt-dlp"""
+        from services.downloader import VideoDownloader
+        downloader = VideoDownloader()
+        
+        # 標記按鈕狀態
+        # 注意：這裡由於按鈕沒有儲存為成員變數，暫不變更文字，直接異步執行
+        def do_update():
+            try:
+                if downloader.update_ytdlp():
+                    self.frame.after(0, lambda: messagebox.showinfo("成功", "下載組件 (yt-dlp) 更新完成！"))
+                else:
+                    self.frame.after(0, lambda: messagebox.showerror("錯誤", "下載組件更新失敗，請檢查網路連線。"))
+            except Exception as e:
+                messagebox.showerror("錯誤", f"更新發生異常: {e}")
+
+        messagebox.showinfo("提示", "正在後端嘗試更新下載組件，請稍候...")
+        import threading
+        threading.Thread(target=do_update, daemon=True).start()
+
+    def browse_cookie_file(self):
+        """瀏覽並選取 Cookies 檔案"""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="選取登入狀態 Cookies 檔案",
+            filetypes=[("Cookies 檔案", "*.txt"), ("所有檔案", "*.*")]
+        )
+        if path:
+            self.cookie_file_var.set(path)
+            # 自動儲存
+            self.save_all_settings_silent() # Changed to silent save
 
     def sync_version_to_files(self, new_version):
         """同步版本號到 constants.py 與 version_info.py"""

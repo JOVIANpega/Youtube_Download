@@ -29,6 +29,7 @@ class SettingsManager:
             'font_size': DEFAULT_FONT_SIZE,
             'download_path': os.path.abspath(DEFAULT_DOWNLOAD_PATH),
             'quality_preference': 'best',
+            'browser_preference': 'none',
             'filename_prefix': '',
             'settings_split_pos': 320,
             'auto_merge': True,
@@ -44,6 +45,10 @@ class SettingsManager:
             'theme': 'default',
             'log_level': 'INFO',
             'ffmpeg_path': '',
+            'proxy': '',
+            'cookie_file_path': '',
+            'po_token': '',
+            'use_random_delay': False,
             'recent_urls': [],
             'favorite_prefixes': ['', 'per- ', 'per best- ', 'per best2- ', 'per best3- ', 'per nice- '],
             'quality_options': {

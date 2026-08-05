@@ -96,30 +96,47 @@ class FilenameManager:
     @staticmethod
     def clean_filename_for_platform(filename, platform=None):
         """根據平台清理檔名"""
-        # 基本清理
+        if not filename:
+            return "untitled"
+            
+        # 1. 平台特定處理 (在 sanitize 之前，因為 sanitize 會把 : // 換掉)
+        platform_lower = str(platform).lower() if platform else ""
+        
+        if platform_lower == 'youtube':
+            # 移除 YouTube 特有的標記
+            filename = re.sub(r'(?i)(youtube|yt)\s*[-_]?\s*', '', filename)
+            
+        elif platform_lower == 'bilibili':
+            # 移除 Bilibili 特有的標記
+            filename = re.sub(r'(?i)(bilibili|b站|哔哩哔哩)\s*[-_]?\s*', '', filename)
+            
+        elif platform_lower == 'tiktok':
+            # 移除 TikTok 特有的標記
+            filename = re.sub(r'(?i)(tiktok|抖音)\s*[-_]?\s*', '', filename)
+            
+        elif platform_lower == 'facebook':
+            # 移除 Facebook 特有的標記 (如: 57K views · 431 reactions)
+            filename = re.sub(r'(?i)\d+\.?\d*[KMB]?\s*views\s*·\s*\d+\.?\d*[KMB]?\s*reactions', '', filename)
+            # 移除網址
+            filename = re.sub(r'https?://\S+', '', filename)
+            # 移除常見的連結分隔符
+            filename = re.sub(r'[|｜]', ' ', filename)
+
+        # 2. 基本清理與轉義
         filename = sanitize_filename(filename)
         
-        # 移除常見的無用字符
+        # 3. 移除常見的無用字符
         filename = re.sub(r'\s+', ' ', filename)  # 多個空格變一個
         filename = re.sub(r'[【】\[\]（）()]', '', filename)  # 移除括號
         filename = re.sub(r'[_-]+', '-', filename)  # 多個連字符變一個
         
-        # 平台特定處理
-        if platform == 'YouTube':
-            # 移除 YouTube 特有的標記
-            filename = re.sub(r'(?i)(youtube|yt)\s*[-_]?\s*', '', filename)
-            
-        elif platform == 'Bilibili':
-            # 移除 Bilibili 特有的標記
-            filename = re.sub(r'(?i)(bilibili|b站|哔哩哔哩)\s*[-_]?\s*', '', filename)
-            
-        elif platform == 'TikTok':
-            # 移除 TikTok 特有的標記
-            filename = re.sub(r'(?i)(tiktok|抖音)\s*[-_]?\s*', '', filename)
-            
         # 最終清理
-        filename = filename.strip(' -_.')
+        filename = filename.strip(' -_.|｜')
         
+        # 限制長度
+        if len(filename) > 100:
+            filename = filename[:100].rsplit(' ', 1)[0]
+            
         return filename or "untitled"
     
     @staticmethod

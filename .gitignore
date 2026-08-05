@@ -25,3 +25,13 @@ config/quick_links.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Temp and pack venvs
+.pack-venv/
+youtube_cookies.txt
+*b821-4cbd*.txt
+diag_node.py
+test_nodejs.bat
+assets/deno/
+services/config/
+HTTP_403_解決方案.md

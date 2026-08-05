@@ -65,6 +65,22 @@ class URLValidator:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
             
+        # 針對 Douyin 抖音的特別規則：
+        # 如果網址包含 douyin.com 並且有 modal_id=
+        # 例如 https://www.douyin.com/jingxuan?modal_id=7656733164362124571
+        # 我們將其轉換成 https://www.douyin.com/video/{modal_id}
+        if 'douyin.com' in url and 'modal_id=' in url:
+            try:
+                import urllib.parse
+                parsed = urllib.parse.urlparse(url)
+                params = urllib.parse.parse_qs(parsed.query)
+                modal_id = params.get('modal_id')
+                if modal_id:
+                    m_id = modal_id[0]
+                    url = f"https://www.douyin.com/video/{m_id}"
+            except Exception:
+                pass
+            
         return url
     
     @staticmethod

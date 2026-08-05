@@ -6,8 +6,8 @@ UI 固定字串、顏色、提示語
 """
 
 # 應用程式資訊
-APP_TITLE = "YouTube 下載器"
-APP_VERSION = "2.6.0"
+APP_TITLE = "萬用影音下載器"
+APP_VERSION = "2026614"
 
 # 視窗設定
 WINDOW_SIZE = (500, 400)
@@ -66,7 +66,7 @@ COLORS = THEMES[DEFAULT_THEME]
 
 # UI 文字
 UI_TEXT = {
-    'url_placeholder': '請輸入視頻網址（支援 YouTube、Bilibili、TikTok 等）',
+    'url_placeholder': '貼上影音網址（YouTube、Facebook Reels、IG、Threads、TikTok 等）',
     'download_path_label': '下載路徑：',
     'browse_button': '瀏覽...',
     'download_button': '開始下載',
@@ -111,18 +111,28 @@ SUCCESS_MESSAGES = {
     'settings_saved': '設定已保存',
 }
 
-# 支援的平台
+# 常見平台提示。實際下載能力以 yt-dlp 支援清單為準。
 SUPPORTED_PLATFORMS = {
+    'youtube.com/shorts': 'YouTube Shorts',
     'youtube.com': 'YouTube',
     'youtu.be': 'YouTube',
     'bilibili.com': 'Bilibili',
     'b23.tv': 'Bilibili',
     'tiktok.com': 'TikTok',
+    'vm.tiktok.com': 'TikTok',
+    'vt.tiktok.com': 'TikTok',
     'douyin.com': '抖音',
     'instagram.com': 'Instagram',
+    'threads.net': 'Threads',
     'facebook.com': 'Facebook',
+    'fb.watch': 'Facebook',
+    'reel': 'Facebook / Instagram Reels',
     'twitter.com': 'X (Twitter)',
     'x.com': 'X (Twitter)',
+    'vimeo.com': 'Vimeo',
+    'dailymotion.com': 'Dailymotion',
+    'reddit.com': 'Reddit',
+    'streamable.com': 'Streamable',
     'weibo.com': '微博',
     'kuaishou.com': '快手',
 }
@@ -153,11 +163,12 @@ AUDIO_FORMATS = ['mp3', 'aac', 'ogg', 'wav', 'm4a']
 # 畫質選項
 QUALITY_OPTIONS = [
     ('最佳畫質', 'best'),
+    ('2160p / 4K', '2160p'),
     ('1080p', '1080p'),
     ('720p', '720p'),
     ('480p', '480p'),
     ('360p', '360p'),
-    ('僅音頻', 'audio')
+    ('只下載音訊', 'audio')
 ]
 
 # 日誌設定

@@ -1,3 +1,43 @@
+# Update Log v2.7.3
+
+## Bug Fixes & Stability
+- **🔥 Critical: iOS Client Support**:
+  - **Fixed "Requested format is not available" error** - Switched from Android to iOS client for better cookie compatibility.
+  - Android client doesn't support cookies properly, causing authentication failures.
+  - iOS client provides more stable format extraction with authenticated sessions.
+- **Enhanced Format Selector**:
+  - Added multiple fallback options for format selection (separate streams → combined formats → best available).
+  - Improved compatibility with iOS client which typically provides combined video+audio formats.
+  - Prevents "Only images are available" errors by providing more flexible format matching.
+- **Enhanced Cookie Validation**:
+  - Added automatic validation for cookie files (checks if empty or too old).
+  - Warns users if cookie file is older than 7 days (likely expired).
+  - Provides clearer error messages when cookie files are invalid or unreadable.
+- **JavaScript Runtime Support**:
+  - Configured yt-dlp to use Node.js for YouTube extraction (resolves "No supported JavaScript runtime" warnings).
+  - Improved player client selection strategy for better compatibility.
+- **Better Error Diagnostics**:
+  - Enhanced HTTP 403 error messages with specific troubleshooting steps.
+  - Added debug logging for cookie file usage and validation.
+
+---
+
+# Update Log v2.7.0
+
+## Bug Fixes & Stability
+- **HTTP 403 Forbidden Fix**: 
+  - Enhanced error handling for "Forbidden" errors with clear user guidance.
+  - Added smart detection for 403 errors, prompting users to use the **"Cookies Authorization"** feature.
+- **Maintenance Tools**:
+  - **Clear Download Cache**: Added a button in Settings to clear `yt-dlp` cache, resolving stuck connections.
+  - **Update Downloader**: Added a button to manually trigger `yt-dlp` updates directly from the GUI.
+- **UX Improvements**:
+  - Detailed error messages now provide actionable steps (Cookies, Proxy, Cache).
+  - Improved button layout in the "Advanced Settings" section.
+
+
+---
+
 # Update Log v2.6.0
 
 ## New Features

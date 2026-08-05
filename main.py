@@ -16,6 +16,7 @@ from services.history_store import HistoryStore
 
 # 導入自定義模組
 from ui_download import DownloadTab
+from ui_other_download import OtherDownloadsTab
 from ui_history import HistoryTab
 from ui_settings import SettingsTab
 from utils.ui_fonts import FontManager
@@ -38,6 +39,7 @@ class MainApplication:
         self.setup_exception_handler()
         self.load_settings()
         self.apply_theme_from_settings()
+        print(f">>> 啟動成功！目前執行版本：v{version_info.VERSION}")
         
     def setup_window(self):
         """設置主視窗"""
@@ -107,12 +109,14 @@ class MainApplication:
         # 創建各個分頁
         self.download_tab = DownloadTab(self.notebook, self.font_manager, self.settings_manager, self.history_store)
         self.download_tab_2 = DownloadTab(self.notebook, self.font_manager, self.settings_manager, self.history_store)
+        self.other_download_tab = OtherDownloadsTab(self.notebook, self.font_manager)
         self.history_tab = HistoryTab(self.notebook, self.font_manager, self.history_store)
         self.settings_tab = SettingsTab(self.notebook, self.font_manager, self.settings_manager)
         
         # 添加分頁到筆記本
         self.notebook.add(self.download_tab.frame, text="下載 1")
         self.notebook.add(self.download_tab_2.frame, text="下載 2")
+        self.notebook.add(self.other_download_tab.frame, text="其他下載")
         self.notebook.add(self.history_tab.frame, text="歷史記錄")
         self.notebook.add(self.settings_tab.frame, text="設定")
         
@@ -167,11 +171,19 @@ class MainApplication:
         style.configure('TLabelframe.Label', background=colors['bg_main'], foreground=colors['text_main'])
         style.configure('TLabel', background=colors['bg_main'], foreground=colors['text_main'])
         
+        # 進度條樣式 (綠色)
+        style.configure('TProgressbar', 
+                         background=colors['success'], 
+                         troughcolor='#E0E0E0',
+                         bordercolor=colors['bg_main'],
+                         lightcolor=colors['success'],
+                         darkcolor=colors['success'])
+        
         # 強制 UI 重新繪製
         self.root.update_idletasks()
         
         # 通知各分頁更新 (如果分頁有實作更新主題的方法)
-        for tab in [self.download_tab, self.download_tab_2, self.history_tab, self.settings_tab]:
+        for tab in [self.download_tab, self.download_tab_2, self.other_download_tab, self.history_tab, self.settings_tab]:
             if hasattr(tab, 'on_theme_changed'):
                 tab.on_theme_changed(colors)
         
@@ -185,8 +197,10 @@ class MainApplication:
         elif tab_text == "設定":
             self.settings_tab.load_settings()
         elif tab_text in ["下載 1", "下載 2"]:
-            # 下載分頁若有需要刷新 (如前綴清單等)
+            # 切換回下載頁面時，自動重新載入設定（以套用新選取的 Cookies 或前綴）
             target = self.download_tab if tab_text == "下載 1" else self.download_tab_2
+            if hasattr(target, 'load_settings'):
+                target.load_settings()
             if hasattr(target, 'reload_prefix_list'):
                 target.reload_prefix_list()
 

@@ -6,8 +6,8 @@
 """
 
 # 版本資訊
-VERSION = "2.6.0"
-VERSION_TUPLE = (2, 6, 0, 0)
+VERSION = "20260805"
+VERSION_TUPLE = (20260805, 0, 0, 0)
 AUTHOR = "YouTube Downloader Team"
 DESCRIPTION = "多平台視頻下載器 - 支援多行狀態顯示與檔名前綴"
 COPYRIGHT = "Copyright © 2024"
@@ -25,7 +25,7 @@ VERSION_INFO = {
 }
 
 # 構建資訊
-BUILD_DATE = "2025-10-06"
+BUILD_DATE = "2026-08-05"
 BUILD_TYPE = "Release"
 
 def get_version_string():
