@@ -263,52 +263,76 @@ class VideoDownloader:
             raise Exception(f"無法獲取視頻資訊: {str(e)}")
 
     def update_ytdlp(self) -> bool:
-        """更新 yt-dlp 元件"""
+        """更新 yt-dlp 元件 (下載最新 PyPI wheel 並解壓到 AppData/yt_dlp_update)"""
         try:
-            import subprocess
+            import urllib.request
+            import json
+            import zipfile
+            import io
             import sys
             
-            # 建立多重備用更新指令
-            commands = []
-            if getattr(sys, 'frozen', False):
-                # 打包環境：sys.executable 是打包後的 EXE
-                commands = [
-                    ["pip", "install", "-U", "yt-dlp"],
-                    ["pip3", "install", "-U", "yt-dlp"],
-                    ["python", "-m", "pip", "install", "-U", "yt-dlp"]
-                ]
-            else:
-                # 開發環境：使用當前執行 Python
-                commands = [
-                    [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
-                    ["pip", "install", "-U", "yt-dlp"]
-                ]
-                
-            success = False
-            for cmd in commands:
-                try:
-                    logger.info(f"正在嘗試更新 yt-dlp，指令: {' '.join(cmd)}")
-                    result = subprocess.run(
-                        cmd, 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.PIPE, 
-                        text=True, 
-                        timeout=90, 
-                        shell=True
-                    )
-                    if result.returncode == 0:
-                        success = True
-                        logger.info(f"yt-dlp 更新成功 (指令: {' '.join(cmd)})")
-                        break
-                    else:
-                        logger.warning(f"指令 {' '.join(cmd)} 執行失敗，錯誤碼: {result.returncode}, 錯誤: {result.stderr}")
-                except Exception as ex:
-                    logger.warning(f"執行 {' '.join(cmd)} 發生異常: {ex}")
-                    continue
+            logger.info("開始動態更新 yt-dlp...")
             
-            return success
+            # 1. 取得 PyPI 上最新的 yt-dlp 資訊
+            pypi_url = "https://pypi.org/pypi/yt-dlp/json"
+            req = urllib.request.Request(pypi_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=15) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                
+            # 2. 獲取最新版本號與 wheel 下載網址
+            latest_version = data['info']['version']
+            logger.info(f"發現最新 yt-dlp 版本: {latest_version}")
+            
+            whl_url = None
+            for release in data['urls']:
+                if release['packagetype'] == 'bdist_wheel':
+                    whl_url = release['url']
+                    break
+                    
+            if not whl_url:
+                raise Exception("無法在 PyPI 上找到 wheel 安裝檔 (.whl)")
+                
+            # 3. 建立目標資料夾
+            app_data_dir = os.path.join(os.path.expanduser('~'), '.gemini', 'antigravity')
+            os.makedirs(app_data_dir, exist_ok=True)
+            target_update_dir = os.path.join(app_data_dir, 'yt_dlp_update')
+            
+            # 暫時下載到記憶體或暫存資料夾
+            logger.info(f"正在下載最新 wheel: {whl_url}")
+            whl_req = urllib.request.Request(whl_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(whl_req, timeout=60) as response:
+                whl_data = response.read()
+                
+            # 4. 解壓縮 wheel 檔案 (wheel 本質上是 zip 壓縮檔)
+            logger.info("下載完成，正在解壓縮元件...")
+            with zipfile.ZipFile(io.BytesIO(whl_data)) as z:
+                # 只解壓縮 yt_dlp 資料夾，避免覆蓋其他檔案
+                for file_info in z.infolist():
+                    if file_info.filename.startswith('yt_dlp/'):
+                        z.extract(file_info, target_update_dir)
+                        
+            logger.info(f"yt-dlp {latest_version} 成功下載並解壓至 {target_update_dir}")
+            
+            # 5. 立刻在執行期動態重新加載/置換 sys.path 並重新 import yt_dlp
+            if target_update_dir not in sys.path:
+                sys.path.insert(0, target_update_dir)
+                
+            # 清除模組快取以防已加載舊版
+            for module_name in list(sys.modules.keys()):
+                if module_name == 'yt_dlp' or module_name.startswith('yt_dlp.'):
+                    del sys.modules[module_name]
+                    
+            # 重新加載
+            global yt_dlp
+            import yt_dlp
+            logger.info(f"成功重新載入新版 yt-dlp: {yt_dlp.version.__version__}")
+            
+            return True
+            
         except Exception as e:
-            logger.error(f"更新 yt-dlp 失敗: {e}")
+            logger.error(f"動態更新 yt-dlp 失敗: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
             
     def get_download_resolution(self, url: str, options: Dict[str, Any], 

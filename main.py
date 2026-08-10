@@ -12,6 +12,12 @@ import os
 import threading
 import traceback
 
+# 優先載入用戶在 APPDATA 下動態更新的最新版 yt-dlp 元件，繞過 PyInstaller 靜態打包鎖定
+app_data_dir = os.path.join(os.path.expanduser('~'), '.gemini', 'antigravity')
+yt_dlp_update_path = os.path.join(app_data_dir, 'yt_dlp_update')
+if os.path.exists(yt_dlp_update_path) and yt_dlp_update_path not in sys.path:
+    sys.path.insert(0, yt_dlp_update_path)
+
 from services.history_store import HistoryStore
 
 # 導入自定義模組
