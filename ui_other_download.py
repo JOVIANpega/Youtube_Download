@@ -45,7 +45,8 @@ class OtherDownloadsTab:
             ("TikTokio 下載器 (TikTok)", "https://tiktokio.com/zh_tw/"),
             ("SnapAny 下載器 (Bilibili/抖音)", "https://snapany.com/zh-Hant/bilibili"),
             ("Threadster 下載器 (Threads)", "https://threadster.app/"),
-            ("FDownloader 下載器 (FB Reels)", "https://fdownloader.net/zh-tw/facebook-reels-downloader")
+            ("FDownloader 下載器 (FB Reels)", "https://fdownloader.net/zh-tw/facebook-reels-downloader"),
+            ("SaveClip 下載器 (Instagram)", "https://saveclip.app/zh-tw")
         ]
         
         # 循環建立按鈕
