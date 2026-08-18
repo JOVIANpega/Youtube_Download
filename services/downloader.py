@@ -486,22 +486,29 @@ class VideoDownloader:
                 else:
                     logger.warning("未找到 FFmpeg，合併功能可能失效")
             
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # 取得預計輸出檔名
-                try:
-                    full_filename = ydl.prepare_filename(video_info)
-                    self.current_task.filename = os.path.basename(full_filename)
-                except Exception as e:
-                    logger.warning(f"無法預先取得檔名: {e}")
-                
-                # 檢查進度回調
-                def check_cancellation():
-                    if cancellation_token and cancellation_token.is_cancelled():
-                        raise OperationCancelledException("操作已取消")
-                
-                # 直接處理已獲取的資訊，跳過重複擷取網頁的步驟
-                self._update_status(DownloadStatus.DOWNLOADING, "正在連結數據流...")
-                ydl.process_video_result(video_info, download=True)
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # 取得預計輸出檔名
+                    try:
+                        full_filename = ydl.prepare_filename(video_info)
+                        self.current_task.filename = os.path.basename(full_filename)
+                    except Exception as e:
+                        logger.warning(f"無法預先取得檔名: {e}")
+                    
+                    # 直接處理已獲取的資訊，跳過重複擷取網頁的步驟
+                    self._update_status(DownloadStatus.DOWNLOADING, "正在連結數據流...")
+                    ydl.process_video_result(video_info, download=True)
+            except Exception as download_error:
+                err_str = str(download_error)
+                # 檢查是否為續傳引發的 403 錯誤
+                if "403" in err_str or "Forbidden" in err_str:
+                    logger.warning("下載時發生 403 錯誤，可能是因為續傳檔案與過期 URL 衝突。正在嘗試停用續傳並重新下載...")
+                    self._update_status(DownloadStatus.DOWNLOADING, "正在重頭下載 (停用續傳)...")
+                    ydl_opts['continuedl'] = False
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.process_video_result(video_info, download=True)
+                else:
+                    raise download_error
                 
             # 檢查最終取消狀態
             if cancellation_token and cancellation_token.is_cancelled():
